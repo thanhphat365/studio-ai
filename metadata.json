@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Copy of Trợ lý học tập AI",
+  "description": "Một trợ lý học tập thông minh có khả năng thích ứng với trình độ kiến thức của bạn. Tải lên hình ảnh và tài liệu để nhận được giải thích và câu trả lời được cá nhân hóa.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
