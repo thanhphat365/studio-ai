@@ -9,7 +9,9 @@ export enum DifficultyLevel {
   Advanced = 'Nâng cao',
 }
 
-export type LearningMode = 'solve' | 'review';
+export type LearningMode = 'solve_socratic' | 'solve_direct' | 'review';
+
+export type Theme = 'light' | 'dark' | 'system';
 
 export interface Part {
   text?: string;
@@ -23,6 +25,7 @@ export interface ChatMessage {
   id?: string; // Optional unique identifier for a message
   role: 'user' | 'model';
   parts: Part[];
+  isStreaming?: boolean; // True if the message is actively being streamed
 }
 
 export interface UploadedFile {

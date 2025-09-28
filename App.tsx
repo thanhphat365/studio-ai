@@ -2,10 +2,10 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import ChatInput from './components/ChatInput';
 import ChatMessageComponent from './components/ChatMessage';
-import LevelSelector from './components/LevelSelector';
-import { BrainCircuitIcon } from './components/Icons';
-import { EducationalStage, DifficultyLevel, ChatMessage, UploadedFile, Part, LearningMode } from './types';
-import { generateResponse, generateImage } from './services/geminiService';
+import Header from './components/Header';
+import { NovaIcon, PencilIcon, LightningBoltIcon } from './components/Icons';
+import { EducationalStage, DifficultyLevel, ChatMessage, UploadedFile, Part, LearningMode, Theme } from './types';
+import { generateResponseStream, generateImage } from './services/geminiService';
 import StartScreen from './components/StartScreen';
 import CameraCapture from './components/CameraCapture';
 
@@ -23,6 +23,36 @@ const fileToBase64 = (file: File): Promise<string> => {
     });
 };
 
+// Component for user to choose between Socratic and Direct solving.
+const ChoiceSelector: React.FC<{ onSelect: (mode: LearningMode) => void; isLoading: boolean; }> = ({ onSelect, isLoading }) => {
+  return (
+    <div className="max-w-4xl mx-auto my-4">
+      <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-2xl p-4">
+        <p className="text-center font-semibold text-gray-800 dark:text-gray-200 mb-3">Bạn muốn tiếp tục như thế nào?</p>
+        <div className="flex flex-col sm:flex-row justify-center items-center gap-3">
+            <button
+                onClick={() => onSelect('solve_socratic')}
+                disabled={isLoading}
+                className="flex w-full sm:w-auto items-center justify-center gap-3 px-5 py-3 bg-indigo-600 text-white rounded-full font-semibold shadow-md hover:bg-indigo-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <PencilIcon className="w-5 h-5" />
+                <span>Hướng dẫn từng bước</span>
+            </button>
+            <button
+                onClick={() => onSelect('solve_direct')}
+                disabled={isLoading}
+                className="flex w-full sm:w-auto items-center justify-center gap-3 px-5 py-3 bg-gray-600 text-white rounded-full font-semibold shadow-md hover:bg-gray-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <LightningBoltIcon className="w-5 h-5" />
+                <span>Xem lời giải chi tiết</span>
+            </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 const App: React.FC = () => {
   const [appState, setAppState] = useState<'start' | 'chat'>('start');
   const [learningMode, setLearningMode] = useState<LearningMode | null>(null);
@@ -35,6 +65,8 @@ const App: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<UploadedFile | null>(null);
   const [fileParts, setFileParts] = useState<Part[] | null>(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'system');
+  const [isAwaitingChoice, setIsAwaitingChoice] = useState(false);
   
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -42,16 +74,87 @@ const App: React.FC = () => {
     if (appState === 'chat') {
         chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isLoading, appState]);
+  }, [messages, isLoading, appState, isAwaitingChoice]);
+  
+  // Theme management effect
+  useEffect(() => {
+    const root = window.document.documentElement;
+    const isDark =
+      theme === 'dark' ||
+      (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    
+    root.classList.toggle('dark', isDark);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const handleClearFile = () => {
+    setUploadedFile(null);
+    setFileParts(null);
+  };
+
+  const handlePaste = useCallback(async (event: ClipboardEvent) => {
+    if (appState !== 'chat' || isLoading || isCameraOpen || isAwaitingChoice) return;
+
+    const items = event.clipboardData?.items;
+    if (!items) return;
+
+    let imageFile: File | null = null;
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && items[i].type.startsWith('image/')) {
+            imageFile = items[i].getAsFile();
+            break; 
+        }
+    }
+
+    if (imageFile) {
+        event.preventDefault();
+        
+        setIsLoading(true);
+        setError(null);
+        handleClearFile();
+
+        try {
+            const base64Data = await fileToBase64(imageFile);
+            const fileName = `Ảnh dán_${new Date().toISOString()}.png`;
+
+            setUploadedFile({
+                name: fileName,
+                type: imageFile.type,
+                base64Data,
+            });
+
+            setFileParts([{
+                inlineData: {
+                    mimeType: imageFile.type,
+                    data: base64Data,
+                }
+            }]);
+
+        } catch (err) {
+            const errorMsg = 'Lỗi xử lý ảnh dán. Vui lòng thử lại.';
+            setError(errorMsg);
+            console.error(err);
+            handleClearFile();
+        } finally {
+            setIsLoading(false);
+        }
+    }
+  }, [appState, isLoading, isCameraOpen, isAwaitingChoice]);
+
+  useEffect(() => {
+    window.addEventListener('paste', handlePaste);
+    return () => {
+        window.removeEventListener('paste', handlePaste);
+    };
+  }, [handlePaste]);
+
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Use a general loading indicator for file processing
     setIsLoading(true); 
     setError(null);
-    // Set file name for UI immediately
     setUploadedFile({ name: file.name, type: file.type, base64Data: '' }); 
 
     try {
@@ -68,14 +171,12 @@ const App: React.FC = () => {
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
                 
-                // 1. Extract text content
                 const textContent = await page.getTextContent();
                 const pageText = textContent.items.map((item: any) => item.str).join(' ');
                 if (pageText.trim()) {
                     parts.push({ text: `--- Nội dung trang ${i} ---\n${pageText}` });
                 }
 
-                // 2. Render page to a canvas to get a full image of the page
                 const viewport = page.getViewport({ scale: 1.5 });
                 const canvas = document.createElement('canvas');
                 const context = canvas.getContext('2d');
@@ -96,7 +197,7 @@ const App: React.FC = () => {
                 });
             }
             setFileParts(parts);
-        } else { // Handle standard images and text files
+        } else { 
             const base64Data = await fileToBase64(file);
             const singlePart = {
                 inlineData: {
@@ -113,9 +214,9 @@ const App: React.FC = () => {
         setUploadedFile(null);
         setFileParts(null);
     } finally {
-        setIsLoading(false); // File processing is complete
+        setIsLoading(false); 
         if (event.target) {
-            event.target.value = ''; // Reset file input
+            event.target.value = '';
         }
     }
   };
@@ -133,21 +234,25 @@ const App: React.FC = () => {
             data: base64Data,
         }
     }]);
-    setIsCameraOpen(false); // Close camera modal
-  };
-
-  const handleClearFile = () => {
-    setUploadedFile(null);
-    setFileParts(null);
+    setIsCameraOpen(false);
   };
   
   const handleSelectMode = (mode: LearningMode) => {
     setLearningMode(mode);
     setAppState('chat');
     
-    const welcomeMessageText = mode === 'solve'
-      ? 'Tuyệt vời! Hãy đưa ra bài tập em muốn giải nhé. Em có thể gõ lại đề bài, tải lên hình ảnh, hoặc chụp ảnh bài tập.'
-      : 'Được thôi! Em muốn ôn lại chủ đề hay kiến thức cụ thể nào?';
+    let welcomeMessageText = '';
+    switch (mode) {
+      case 'solve_socratic':
+        welcomeMessageText = 'Tuyệt vời! Hãy đưa ra bài tập em muốn được hướng dẫn nhé. Em có thể gõ lại đề bài, tải lên hình ảnh, chụp ảnh hoặc dán ảnh bài tập vào đây.';
+        break;
+      case 'review':
+        welcomeMessageText = 'Được thôi! Em muốn ôn lại chủ đề hay kiến thức cụ thể nào?';
+        break;
+      default:
+        welcomeMessageText = 'Xin chào! Tôi có thể giúp gì cho bạn hôm nay?';
+        break;
+    }
       
     const initialMessage: ChatMessage = {
       role: 'model',
@@ -155,12 +260,95 @@ const App: React.FC = () => {
     };
     setMessages([initialMessage]);
   };
-
-  const handleSendMessage = useCallback(async () => {
-    if (!input.trim() && (!fileParts || fileParts.length === 0)) return;
-
+    
+  const processAndStreamResponse = useCallback(async (
+    messageHistory: ChatMessage[],
+    mode: LearningMode | null,
+  ) => {
     setIsLoading(true);
     setError(null);
+    
+    const modelMessageId = `model-msg-${Date.now()}`;
+    const newModelMessage: ChatMessage = {
+        id: modelMessageId,
+        role: 'model',
+        parts: [{ text: '' }],
+        isStreaming: true
+    };
+    setMessages(prev => [...prev, newModelMessage]);
+    
+    let fullResponseText = '';
+
+    try {
+        const stream = generateResponseStream(messageHistory, educationalStage, difficultyLevel, mode);
+
+        for await (const chunk of stream) {
+            fullResponseText += chunk;
+            setMessages(prev => prev.map(msg =>
+                msg.id === modelMessageId
+                    ? { ...msg, parts: [{ text: fullResponseText }] }
+                    : msg
+            ));
+        }
+        
+        const imageGenRegex = /\[GENERATE_IMAGE:\s*"([^"]+)"\]/g;
+        const imagePrompts: string[] = [];
+        let match;
+        while ((match = imageGenRegex.exec(fullResponseText)) !== null) {
+            imagePrompts.push(match[1]);
+        }
+
+        const cleanedText = fullResponseText.replace(imageGenRegex, '').trim();
+        
+        // Combine the final text update with setting isStreaming to false
+        // This prevents re-renders that could race with MathJax typesetting
+        if (cleanedText || imagePrompts.length > 0) {
+            setMessages(prev => prev.map(msg =>
+                msg.id === modelMessageId
+                    ? { ...msg, parts: [{ text: cleanedText }], isStreaming: false }
+                    : msg
+            ));
+        } else {
+            // If message is empty after cleaning, remove it
+            setMessages(prev => prev.filter(msg => msg.id !== modelMessageId));
+        }
+        
+        for (const prompt of imagePrompts) {
+            const placeholderId = `img-placeholder-${Date.now()}-${Math.random()}`;
+            const placeholderMessage: ChatMessage = { role: 'model', parts: [{ text: `Đang tạo hình ảnh: "${prompt}"...` }], id: placeholderId };
+            setMessages(prev => [...prev, placeholderMessage]);
+
+            try {
+                const imageBase64 = await generateImage(prompt);
+                const imageResponse: ChatMessage = {
+                    role: 'model',
+                    parts: [{ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } }]
+                };
+                setMessages(prev => prev.map(msg => msg.id === placeholderId ? imageResponse : msg));
+            } catch (imgErr) {
+                console.error(imgErr);
+                const errorMsg = `Rất tiếc, không thể tạo hình ảnh cho: "${prompt}"`;
+                const errorResponse: ChatMessage = { role: 'model', parts: [{ text: errorMsg }] };
+                setMessages(prev => prev.map(msg => msg.id === placeholderId ? errorResponse : msg));
+            }
+        }
+
+    } catch (err) {
+      const errorMessage = 'Đã xảy ra lỗi khi nhận phản hồi. Vui lòng kiểm tra lại API key và thử lại.';
+      setError(errorMessage);
+      console.error(err);
+      setMessages(prev => prev.map(msg => 
+        msg.id === modelMessageId 
+            ? { role: 'model', parts: [{ text: errorMessage }], isStreaming: false }
+            : msg
+      ));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [educationalStage, difficultyLevel]);
+
+  const handleSendMessage = useCallback(async () => {
+    if (isLoading || isAwaitingChoice || (!input.trim() && (!fileParts || fileParts.length === 0))) return;
 
     const userParts: Part[] = [...(fileParts || [])];
     if (input.trim()) {
@@ -170,65 +358,37 @@ const App: React.FC = () => {
     const newUserMessage: ChatMessage = { role: 'user', parts: userParts };
     const currentMessages = [...messages, newUserMessage];
     setMessages(currentMessages);
-
-    // Clear inputs for next message
     setInput('');
     setUploadedFile(null);
     setFileParts(null);
-
-    try {
-      const response = await generateResponse(currentMessages, educationalStage, difficultyLevel, learningMode);
-      
-      let modelText = response.text;
-      const imageGenRegex = /\[GENERATE_IMAGE:\s*"([^"]+)"\]/g;
-      const imagePrompts: string[] = [];
-      let match;
-      while ((match = imageGenRegex.exec(modelText)) !== null) {
-          imagePrompts.push(match[1]);
-      }
-
-      const cleanedText = modelText.replace(imageGenRegex, '').trim();
-
-      if (cleanedText) {
-          const textResponse: ChatMessage = { role: 'model', parts: [{ text: cleanedText }] };
-          setMessages(prev => [...prev, textResponse]);
-      }
-      
-      for (const prompt of imagePrompts) {
-          const placeholderId = `img-placeholder-${Date.now()}-${Math.random()}`;
-          const placeholderMessage: ChatMessage = { role: 'model', parts: [{ text: `Đang tạo hình ảnh: "${prompt}"...` }], id: placeholderId };
-          setMessages(prev => [...prev, placeholderMessage]);
-
-          try {
-              const imageBase64 = await generateImage(prompt);
-              const imageResponse: ChatMessage = {
-                  role: 'model',
-                  parts: [{ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } }]
-              };
-              setMessages(prev => prev.map(msg => msg.id === placeholderId ? imageResponse : msg));
-          } catch (imgErr) {
-              console.error(imgErr);
-              const errorMsg = `Rất tiếc, không thể tạo hình ảnh cho: "${prompt}"`;
-              const errorResponse: ChatMessage = { role: 'model', parts: [{ text: errorMsg }] };
-              setMessages(prev => prev.map(msg => msg.id === placeholderId ? errorResponse : msg));
-          }
-      }
-
-    } catch (err) {
-      const errorMessage = 'Đã xảy ra lỗi khi nhận phản hồi. Vui lòng kiểm tra lại API key và thử lại.';
-      setError(errorMessage);
-      console.error(err);
-      const errorResponse: ChatMessage = { role: 'model', parts: [{text: errorMessage}]};
-      setMessages(prev => [...prev, errorResponse]);
-    } finally {
-      setIsLoading(false);
+    
+    // If it's the first problem in Socratic mode, wait for user's choice
+    if (learningMode === 'solve_socratic' && messages.length === 1) {
+        setIsAwaitingChoice(true);
+    } else {
+        await processAndStreamResponse(currentMessages, learningMode);
     }
-  }, [input, fileParts, educationalStage, difficultyLevel, messages, learningMode]);
+  }, [input, fileParts, messages, learningMode, isLoading, isAwaitingChoice, processAndStreamResponse]);
+
+  const handleChoiceSelected = async (selectedMode: LearningMode) => {
+    setIsAwaitingChoice(false);
+    setLearningMode(selectedMode);
+    
+    const choiceText = selectedMode === 'solve_socratic'
+        ? 'Hướng dẫn tôi từng bước.'
+        : 'Cho tôi xem lời giải chi tiết.';
+    const choiceMessage: ChatMessage = { role: 'user', parts: [{ text: choiceText }] };
+    
+    const historyForApi = [...messages];
+    setMessages(prev => [...prev, choiceMessage]);
+    
+    await processAndStreamResponse(historyForApi, selectedMode);
+  };
 
     const ModelThinkingIndicator = () => (
         <div className="flex justify-start mb-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center mr-3">
-                <BrainCircuitIcon className="w-6 h-6 text-white" />
+                <NovaIcon className="w-7 h-7 text-white" />
             </div>
             <div className="max-w-2xl p-4 rounded-2xl shadow bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 self-start">
                 <div className="flex items-center space-x-2">
@@ -252,41 +412,39 @@ const App: React.FC = () => {
                 onClose={() => setIsCameraOpen(false)}
             />
         )}
-        <header className="flex flex-col md:flex-row justify-center items-center gap-4 p-4 shadow-md bg-white/80 dark:bg-gray-800/80 backdrop-blur-md sticky top-0 z-10 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <BrainCircuitIcon className="w-8 h-8 text-indigo-500 mr-2" />
-              <h1 className="text-xl md:text-2xl font-bold text-gray-800 dark:text-gray-200 whitespace-nowrap">
-                Trợ lý học tập AI
-              </h1>
-            </div>
-            <LevelSelector 
-                selectedStage={educationalStage} 
-                setSelectedStage={setEducationalStage}
-                selectedDifficulty={difficultyLevel}
-                setSelectedDifficulty={setDifficultyLevel}
-                isLoading={isLoading} 
-            />
-        </header>
+        <Header 
+            theme={theme}
+            setTheme={setTheme}
+            selectedStage={educationalStage}
+            setSelectedStage={setEducationalStage}
+            selectedDifficulty={difficultyLevel}
+            setSelectedDifficulty={setDifficultyLevel}
+            isLoading={isLoading || isAwaitingChoice}
+        />
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="max-w-4xl mx-auto">
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 relative">
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+                <NovaIcon className="w-1/2 max-w-lg h-auto text-gray-500 opacity-10" />
+            </div>
+            <div className="max-w-4xl mx-auto relative z-10">
                 {messages.map((msg, index) => (
                     <ChatMessageComponent key={msg.id || index} message={msg} />
                 ))}
-                {isLoading && <ModelThinkingIndicator />}
+                {isAwaitingChoice && <ChoiceSelector onSelect={handleChoiceSelected} isLoading={isLoading} />}
+                {isLoading && messages[messages.length - 1]?.role !== 'model' && <ModelThinkingIndicator />}
                 {error && <div className="text-red-500 text-center p-2">{error}</div>}
                 <div ref={chatEndRef} />
             </div>
         </main>
 
-        <footer className="sticky bottom-0">
+        <footer className="sticky bottom-0 z-10">
             <ChatInput
                 input={input}
                 setInput={setInput}
                 handleSendMessage={handleSendMessage}
                 handleFileChange={handleFileChange}
                 onOpenCamera={() => setIsCameraOpen(true)}
-                isLoading={isLoading}
+                isLoading={isLoading || isAwaitingChoice}
                 uploadedFile={uploadedFile}
                 onClearFile={handleClearFile}
             />

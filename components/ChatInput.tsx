@@ -54,7 +54,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 </button>
             </div>
         )}
-        <div className="relative flex items-center bg-gray-100 dark:bg-gray-900 rounded-full p-2">
+        <div className="relative flex items-center bg-slate-200 dark:bg-gray-900 rounded-full p-2">
             <input
                 type="file"
                 ref={fileInputRef}

@@ -1,101 +1,128 @@
 import React, { useRef, useEffect } from 'react';
 import { ChatMessage, Part } from '../types';
-import { BrainCircuitIcon } from './Icons';
+import { NovaIcon } from './Icons';
 
-// More robust markdown-to-HTML parser that correctly handles lists and code blocks.
+// This function parses a custom markdown dialect that also supports LaTeX via MathJax.
+// It works by temporarily replacing math and code blocks with unique placeholders,
+// processing the markdown, and then re-injecting the original math/code blocks.
+// This prevents the markdown parser from interfering with LaTeX syntax (e.g., `_` for subscripts).
 const parseMarkdown = (text: string) => {
-    // 1. Protect code blocks with placeholders
-    const placeholders: string[] = [];
+    const placeholders = new Map<string, string>();
     const addPlaceholder = (content: string) => {
-        const key = `__PLACEHOLDER_${placeholders.length}__`;
-        placeholders.push(content);
+        const key = `__PLACEHOLDER_${placeholders.size}__`;
+        placeholders.set(key, content);
         return key;
     };
 
     let tempText = text;
-    // Protect multi-line code blocks: ```...```
-    tempText = tempText.replace(/```([\s\S]*?)```/g, (match) => {
-        const codeContent = match.slice(3, -3); // Get content inside ```
-        const encodedCode = codeContent.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return addPlaceholder(`<pre class="bg-gray-200 dark:bg-gray-800 rounded-md p-3 my-2 overflow-x-auto"><code>${encodedCode}</code></pre>`);
-    });
 
-    // Helper for processing inline markdown in a specific order
+    // 1. Protect content that should not be parsed as markdown.
+    // Order is important: handle larger/more specific blocks first.
+    tempText = tempText
+        // Multi-line code blocks
+        .replace(/```([\s\S]*?)```/g, (match) => addPlaceholder(match))
+        // Display math
+        .replace(/\$\$([\s\S]*?)\$\$/g, (match) => addPlaceholder(match))
+        // Inline math. A simpler regex is used for better compatibility.
+        .replace(/\$([^$\n]+?)\$/g, (match) => addPlaceholder(match))
+        // Inline code
+        .replace(/`([^`]+?)`/g, (match) => addPlaceholder(match));
+
+    // 2. Process markdown on the remaining text.
     const processInlineMarkdown = (line: string) => {
-        let processedLine = line;
-        // Order of operations is important here to avoid conflicts.
-        // 1. Code
-        processedLine = processedLine.replace(/`(.*?)`/g, '<code class="bg-gray-200 dark:bg-gray-800 rounded px-1 py-0.5 text-red-500">$1</code>');
-        // 2. Bold
-        processedLine = processedLine.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-        // 3. Italic
-        processedLine = processedLine.replace(/\*(.*?)\*/g, '<em>$1</em>');
-        return processedLine;
+        return line
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>');
     };
 
-    // 2. Process block-level elements: lists and paragraphs
     let html = tempText
-        .split('\n\n') // Split into paragraphs based on blank lines
+        .split('\n\n') // Split into paragraphs/blocks
         .map(block => {
             block = block.trim();
             if (!block) return '';
 
-            // Check for unordered lists (lines starting with * or -)
-            if (block.match(/^(\*|-)\s/m)) {
-                const listItems = block.split('\n').map(item => {
-                    const content = item.replace(/^(\*|-)\s+/, '');
-                    return `<li>${processInlineMarkdown(content)}</li>`;
-                }).join('');
-                return `<ul class="list-disc list-inside space-y-1 my-2">${listItems}</ul>`;
+            const isUnorderedList = block.match(/^\s*(\*|-)\s/m);
+            const isOrderedList = block.match(/^\s*\d+\.\s/m);
+
+            // Handle lists (both ordered and unordered) with multi-line items
+            if (isUnorderedList || isOrderedList) {
+                const lines = block.split('\n');
+                let listHtml = '';
+                let currentItemContent = '';
+
+                const commitCurrentItem = () => {
+                    if (currentItemContent) {
+                        listHtml += `<li>${processInlineMarkdown(currentItemContent.trim())}</li>`;
+                        currentItemContent = '';
+                    }
+                };
+
+                for (const line of lines) {
+                    // Regex to match the start of a list item (ordered or unordered)
+                    const listItemMatch = line.match(/^\s*(?:(?:\*|-)|(?:\d+\.))\s+(.*)/);
+                    if (listItemMatch) {
+                        commitCurrentItem();
+                        currentItemContent = listItemMatch[1]; // content is in the first capture group
+                    } else if (currentItemContent) {
+                        // This line is a continuation of the previous list item
+                        currentItemContent += ' ' + line.trim();
+                    }
+                }
+                commitCurrentItem(); // Commit the last item
+
+                const listTag = isUnorderedList ? 'ul' : 'ol';
+                const listClasses = isUnorderedList 
+                    ? 'list-disc list-inside space-y-1 my-2' 
+                    : 'list-decimal list-inside space-y-1 my-2';
+                
+                return `<${listTag} class="${listClasses}">${listHtml}</${listTag}>`;
             }
 
-            // Check for ordered lists (lines starting with 1., 2., etc.)
-            if (block.match(/^\d+\.\s/m)) {
-                const listItems = block.split('\n').map(item => {
-                    const content = item.replace(/^\d+\.\s+/, '');
-                    return `<li>${processInlineMarkdown(content)}</li>`;
-                }).join('');
-                return `<ol class="list-decimal list-inside space-y-1 my-2">${listItems}</ol>`;
-            }
-
-            // Otherwise, it's a paragraph or a multi-line text block.
+            // Handle paragraphs
             const processedBlock = processInlineMarkdown(block);
-
-            // A single line of text is treated as a standard paragraph and given
-            // extra line spacing for readability.
-            if (!block.includes('\n')) {
-                return `<p class="leading-relaxed">${processedBlock}</p>`;
-            } 
-            // Multiple lines in a block are treated as a single text block
-            // with hard breaks, but with a tighter, standard line height.
-            // This is better for definition lists or poems.
-            else {
-                return `<p>${processedBlock.replace(/\n/g, '<br />')}</p>`;
-            }
+            // In Markdown, single newlines within a paragraph are treated as spaces for text reflow.
+            // Paragraph breaks are handled by the `split('\n\n')`.
+            return `<p class="leading-relaxed">${processedBlock.replace(/\n/g, ' ')}</p>`;
         })
         .join('');
 
-    // 3. Restore placeholders
-    html = html.replace(/__PLACEHOLDER_(\d+)__/g, (match, index) => {
-        return placeholders[parseInt(index, 10)];
+    // 3. Restore placeholders with their final HTML representation.
+    placeholders.forEach((value, key) => {
+        let replacementContent: string;
+        if (value.startsWith('```')) {
+            const code = value.slice(3, -3).replace(/</g, '&lt;').replace(/>/g, '&gt;').trim();
+            replacementContent = `<pre class="bg-gray-200 dark:bg-gray-800 rounded-md p-3 my-2 overflow-x-auto"><code>${code}</code></pre>`;
+        } else if (value.startsWith('`')) {
+            const code = value.slice(1, -1);
+            replacementContent = `<code class="bg-gray-200 dark:bg-gray-800 rounded px-1 py-0.5 text-red-500">${code}</code>`;
+        } else {
+            // This is a MathJax block. Restore it as-is.
+            replacementContent = value;
+        }
+        
+        // Use a replacer function with .replace(). This is safer than using a replacement string,
+        // as it prevents any special sequences (like '$&' or '$1') inside `replacementContent`
+        // from being interpreted. Since our keys are unique, this will replace exactly one placeholder.
+        html = html.replace(key, () => replacementContent);
     });
+
 
     return { __html: html };
 };
 
 
-const ChatMessageContent: React.FC<{ part: Part }> = ({ part }) => {
+const ChatMessageContent: React.FC<{ part: Part, isStreaming?: boolean }> = ({ part, isStreaming }) => {
     const contentRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        // Use MathJax to typeset the content of the message.
         const MathJax = (window as any).MathJax;
-        if (contentRef.current && part.text && MathJax?.typesetPromise) {
+        // Only run MathJax typesetting when the stream for this message has finished.
+        if (contentRef.current && part.text && !isStreaming && MathJax?.typesetPromise) {
             MathJax.typesetPromise([contentRef.current]).catch((err: any) => {
                 console.error("MathJax typesetting failed:", err);
             });
         }
-    }, [part.text]);
+    }, [part.text, isStreaming]);
 
     if (part.inlineData) {
         return (
@@ -107,8 +134,7 @@ const ChatMessageContent: React.FC<{ part: Part }> = ({ part }) => {
         );
     }
     if (part.text) {
-        // Add a key to the div to help React diffing when content changes rapidly
-        return <div key={part.text} ref={contentRef} dangerouslySetInnerHTML={parseMarkdown(part.text)} />;
+        return <div ref={contentRef} dangerouslySetInnerHTML={parseMarkdown(part.text)} />;
     }
     return null;
 };
@@ -124,16 +150,16 @@ const ChatMessageComponent: React.FC<{ message: ChatMessage }> = ({ message }) =
     <div className={`flex ${containerClasses} mb-4`}>
         {!isUser && (
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center mr-3">
-                <BrainCircuitIcon className="w-6 h-6 text-white" />
+                <NovaIcon className="w-7 h-7 text-white" />
             </div>
         )}
-      <div className={`max-w-2xl p-4 rounded-2xl shadow ${bubbleClasses}`}>
+      <div className={`max-w-2xl p-4 rounded-2xl shadow font-sans ${bubbleClasses}`}>
         {message.parts.map((part, index) => (
-          <ChatMessageContent key={index} part={part} />
+          <ChatMessageContent key={index} part={part} isStreaming={message.isStreaming} />
         ))}
       </div>
     </div>
   );
 };
 
-export default ChatMessageComponent;
+export default React.memo(ChatMessageComponent);
