@@ -1,3 +1,4 @@
+
 import React, { useRef, useEffect } from 'react';
 import { ChatMessage, Part } from '../types';
 import { NovaIcon } from './Icons';
@@ -142,18 +143,18 @@ const ChatMessageContent: React.FC<{ part: Part, isStreaming?: boolean }> = ({ p
 const ChatMessageComponent: React.FC<{ message: ChatMessage }> = ({ message }) => {
   const isUser = message.role === 'user';
   const bubbleClasses = isUser
-    ? 'bg-blue-600 text-white self-end'
-    : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 self-start';
-  const containerClasses = isUser ? 'justify-end' : 'justify-start';
+    ? 'bg-blue-500 text-white self-end rounded-t-2xl rounded-bl-2xl'
+    : 'bg-slate-100 dark:bg-slate-700 text-gray-900 dark:text-gray-100 self-start rounded-t-2xl rounded-br-2xl border border-slate-200 dark:border-slate-600';
+  const containerClasses = isUser ? 'justify-end' : 'justify-start items-start';
 
   return (
     <div className={`flex ${containerClasses} mb-4`}>
         {!isUser && (
-            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center mr-3">
+            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center mr-3 mt-1">
                 <NovaIcon className="w-7 h-7 text-white" />
             </div>
         )}
-      <div className={`max-w-2xl p-4 rounded-2xl shadow font-sans ${bubbleClasses}`}>
+      <div className={`max-w-2xl p-4 shadow-sm font-sans ${bubbleClasses}`}>
         {message.parts.map((part, index) => (
           <ChatMessageContent key={index} part={part} isStreaming={message.isStreaming} />
         ))}

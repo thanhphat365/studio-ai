@@ -1,3 +1,4 @@
+
 export enum EducationalStage {
   Elementary = 'Tiểu học',
   MiddleSchool = 'Trung học cơ sở',
@@ -32,4 +33,8 @@ export interface UploadedFile {
     name: string;
     type: string;
     base64Data: string;
+}
+
+export interface User {
+  username: string;
 }

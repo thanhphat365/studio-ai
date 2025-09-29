@@ -1,16 +1,25 @@
 
 import React from 'react';
 import { PencilIcon, BookOpenIcon, NovaIcon } from './Icons';
-import { LearningMode } from '../types';
+import { LearningMode, User } from '../types';
 
-const StartScreen: React.FC<{ onSelectMode: (mode: LearningMode) => void }> = ({ onSelectMode }) => {
+interface StartScreenProps {
+    onSelectMode: (mode: LearningMode) => void;
+    currentUser: User | null;
+}
+
+const StartScreen: React.FC<StartScreenProps> = ({ onSelectMode, currentUser }) => {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen font-sans bg-gradient-to-br from-slate-900 to-slate-700 text-white p-6">
+    <div className="flex flex-col items-center justify-center h-screen font-sans bg-nova-dark text-white p-6">
       <div className="w-full max-w-md text-center">
         
         <div className="mb-12">
             <NovaIcon className="w-24 h-24 text-indigo-400 mx-auto" />
-            <h1 className="text-4xl font-bold mt-4">Chào mừng đến với NOVA</h1>
+            {currentUser ? (
+              <h1 className="text-4xl font-bold mt-4">Chào mừng trở lại, {currentUser.username}!</h1>
+            ) : (
+              <h1 className="text-4xl font-bold mt-4">Chào mừng đến với NOVA</h1>
+            )}
             <p className="text-lg text-gray-300 mt-2">Trợ lý học tập AI của bạn.</p>
         </div>
         
