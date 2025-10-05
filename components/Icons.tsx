@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const NovaIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -89,9 +88,36 @@ export const MoonIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
+export const DesktopComputerIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+    </svg>
+);
+
 export const UserIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
         <circle cx="12" cy="7" r="4"/>
     </svg>
+);
+
+export const PaintBrushIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v2H7.5a2.5 2.5 0 0 0-2.5 2.5V14a2.5 2.5 0 0 0 2.5 2.5h1.28a2 2 0 0 1 1.42.59l.8 1.01A2 2 0 0 0 13.22 19h1.56a2 2 0 0 0 1.78-1.18l.2-1.34a1 1 0 0 1 .93-.78h2.3a1 1 0 0 1 .94.68l.01.23a1 1 0 0 0 .93.78h.83a2 2 0 0 0 2-2v-3.5a2.5 2.5 0 0 0-2.5-2.5H18.5v-2a2 2 0 0 0-2-2h-.44"/>
+        <path d="m14 2 1.25 2.5L18 6l-2.5 1.25L14 10l-1.25-2.5L10 6l2.5-1.25Z"/>
+    </svg>
+);
+
+export const CheckCircleIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+);
+
+export const DocumentTextIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
 );

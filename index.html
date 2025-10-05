@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="vi">
   <head>
@@ -13,16 +12,94 @@
     <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;700&display=swap" rel="stylesheet">
     
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        --color-background: 248 250 252; /* slate-50 */
+        --color-foreground: 36 41 56;   /* nova-dark */
+        --color-text-primary: 15 23 42;  /* slate-900 */
+        --color-text-secondary: 51 65 85; /* slate-600 */
+        --color-border: 226 232 240;     /* slate-200 */
+        --color-card: 255 255 255;      /* white */
+        --color-card-secondary: 241 245 249; /* slate-100 */
+        --color-primary: 79 70 229;     /* indigo-600 */
+        --color-primary-hover: 67 56 202; /* indigo-700 */
+        --color-primary-text: 255 255 255; /* white */
+      }
+
+      .dark {
+        --color-background: 15 23 42;    /* slate-900 */
+        --color-foreground: 248 250 252; /* slate-50 */
+        --color-text-primary: 241 245 249; /* slate-100 */
+        --color-text-secondary: 148 163 184; /* slate-400 */
+        --color-border: 71 85 105;     /* slate-600 */
+        --color-card: 30 41 59;        /* slate-800 */
+        --color-card-secondary: 51 65 85; /* slate-700 */
+        --color-primary: 99 102 241;    /* indigo-500 */
+        --color-primary-hover: 79 70 229;  /* indigo-600 */
+      }
+
+      [data-theme="mint"] {
+        --color-background: 240 253 244; /* green-50 */
+        --color-foreground: 20 83 45;    /* green-900 */
+        --color-text-primary: 22 101 52; /* green-800 */
+        --color-text-secondary: 21 128 61; /* green-700 */
+        --color-border: 187 247 208;    /* green-200 */
+        --color-card: 255 255 255;     /* white */
+        --color-card-secondary: 220 252 231; /* green-100 */
+        --color-primary: 22 163 74;      /* green-600 */
+        --color-primary-hover: 21 128 61; /* green-700 */
+      }
+
+      [data-theme="twilight"] {
+        --color-background: 46 26 71;    /* purple-950 */
+        --color-foreground: 245 243 255; /* purple-50 */
+        --color-text-primary: 245 243 255; /* purple-50 */
+        --color-text-secondary: 221 214 254; /* violet-200 */
+        --color-border: 88 66 127;      /* purple-700 */
+        --color-card: 60 38 92;         /* purple-900 */
+        --color-card-secondary: 76 53 115;  /* purple-800 */
+        --color-primary: 167 139 250;    /* violet-400 */
+        --color-primary-hover: 139 92 246; /* violet-500 */
+        --color-primary-text: 30 27 75;   /* violet-950 */
+      }
+
+      [data-theme="sepia"] {
+        --color-background: 254 252 232; /* yellow-50 */
+        --color-foreground: 67 20 7;    /* custom brown */
+        --color-text-primary: 90 40 10;   /* custom brown */
+        --color-text-secondary: 120 53 15; /* custom brown */
+        --color-border: 253 224 71;     /* yellow-300 */
+        --color-card: 253 242 213;     /* yellow-100 */
+        --color-card-secondary: 254 252 232; /* yellow-50 */
+        --color-primary: 202 138 4;      /* yellow-600 */
+        --color-primary-hover: 180 83 9;   /* amber-700 */
+      }
+    </style>
     <script>
-      // Configure Tailwind to use the 'Be Vietnam Pro' font
+      // Helper function to convert rgb to hex for tailwind
+      const toHex = (c) => `rgba(${c}, var(--tw-bg-opacity, 1))`;
+      
       tailwind.config = {
+        darkMode: 'class',
         theme: {
           extend: {
             fontFamily: {
               sans: ['Be Vietnam Pro', 'sans-serif'],
             },
             colors: {
-              'nova-dark': '#242938',
+              background: 'rgb(var(--color-background) / <alpha-value>)',
+              foreground: 'rgb(var(--color-foreground) / <alpha-value>)',
+              'text-primary': 'rgb(var(--color-text-primary) / <alpha-value>)',
+              'text-secondary': 'rgb(var(--color-text-secondary) / <alpha-value>)',
+              border: 'rgb(var(--color-border) / <alpha-value>)',
+              card: 'rgb(var(--color-card) / <alpha-value>)',
+              'card-secondary': 'rgb(var(--color-card-secondary) / <alpha-value>)',
+              primary: {
+                DEFAULT: 'rgb(var(--color-primary) / <alpha-value>)',
+                hover: 'rgb(var(--color-primary-hover) / <alpha-value>)',
+                text: 'rgb(var(--color-primary-text) / <alpha-value>)',
+              },
+              'nova-dark': '#242938', // Keep for backward compatibility if needed
             }
           },
         },
