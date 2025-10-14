@@ -5,9 +5,42 @@ import { NovaIcon, CheckCircleIcon, ChevronDownIcon, DocumentTextIcon } from './
 const parseMarkdown = (text: string) => {
     if (!text) return { __html: '' };
 
-    // FIX: Unescape the literal '\\n' that the AI might send in plain text due to strict JSON rules.
-    const unescapedText = text.replace(/\\n/g, '\n');
+    // 1. Unescape newlines from AI's JSON string format
+    let processedText = text.replace(/\\n/g, '\n');
+    
+    // 2. Remove stray backslashes that AI uses for line breaks. This often happens before a newline or at the end of the text.
+    processedText = processedText.replace(/\\(?=\s*(\n|$))/g, '');
 
+    // 3. Proactively correct common LaTeX errors & normalize backslashes.
+    // The AI might send `frac`, `\\frac` (becomes `\frac` after JSON parse), or `\\\\frac` (becomes `\\frac` after JSON parse).
+    // We want to ensure the final output for MathJax is always `\command`.
+    const applyLatexFixes = (mathContent: string): string => {
+        // First, normalize multiple backslashes down to one. E.g., `\\frac` -> `\frac`.
+        let fixedContent = mathContent.replace(/\\+(\w+)/g, '\\$1');
+        
+        const latexCommands = [
+            'frac', 'sqrt', 'sum', 'int', 'lim', 'log', 'ln', 'sin', 'cos', 'tan',
+            'alpha', 'beta', 'gamma', 'delta', 'pi', 'theta', 'sigma', 'omega',
+            'Delta', 'Pi', 'Theta', 'Sigma', 'Omega',
+            'pm', 'mp', 'times', 'div', 'cdot', 'cap', 'cup', 'in', 'ni',
+            'subset', 'supset', 'subseteq', 'supseteq', 'equiv', 'approx', 'neq', 'leq', 'geq',
+            'rightarrow', 'leftarrow', 'leftrightarrow', 'uparrow', 'downarrow', 'updownarrow',
+            'infty', 'forall', 'exists', 'vec', 'hat', 'bar', 'dot', 'ddot', 'tilde',
+            'mathbb', 'mathcal', 'mathbf', 'mathrm'
+        ];
+        // Create a regex to find any of these commands if they are NOT preceded by a backslash.
+        // We use word boundaries (\\b) to avoid matching substrings (e.g., 'fraction').
+        const commandRegex = new RegExp(`\\b(?<!\\\\)(${latexCommands.join('|')})\\b`, 'g');
+        fixedContent = fixedContent.replace(commandRegex, '\\$1');
+        return fixedContent;
+    };
+
+    // Apply the fix only to content within math delimiters ($...$ or $$...$$)
+    processedText = processedText.replace(/(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)/g, (match) => {
+        return applyLatexFixes(match);
+    });
+
+    // 4. Continue with existing markdown parsing using processedText
     const placeholders = new Map<string, string>();
     const addPlaceholder = (content: string) => {
         const key = `__PLACEHOLDER_${placeholders.size}__`;
@@ -15,7 +48,7 @@ const parseMarkdown = (text: string) => {
         return key;
     };
 
-    let tempText = unescapedText; // Use the unescaped text
+    let tempText = processedText;
 
     tempText = tempText
         .replace(/```([\s\S]*?)```/g, (match) => addPlaceholder(match))
@@ -34,6 +67,33 @@ const parseMarkdown = (text: string) => {
         .map(block => {
             block = block.trim();
             if (!block) return '';
+
+            // --- Markdown Table Parsing ---
+            const tableLines = block.split('\n').filter(line => line.trim().startsWith('|') && line.trim().endsWith('|'));
+            if (tableLines.length >= 2) {
+                const separatorLine = tableLines[1];
+                const isSeparatorValid = /^\s*\|?(\s*:?-+:?\s*\|)+(\s*:?-+:?\s*)?\|?\s*$/.test(separatorLine);
+
+                if (isSeparatorValid) {
+                    const headers = tableLines[0].split('|').slice(1, -1).map(h => h.trim());
+                    const rows = tableLines.slice(2).map(line => line.split('|').slice(1, -1).map(cell => cell.trim()));
+
+                    const headerHtml = `<thead><tr class="border-b border-border bg-card-secondary/60">${headers.map(h => `<th class="p-3 text-left font-semibold text-text-primary text-sm">${processInlineMarkdown(h)}</th>`).join('')}</tr></thead>`;
+                    
+                    const bodyHtml = `<tbody>${rows.map((row, rowIndex) => `
+                        <tr class="border-b border-border last:border-b-0 ${rowIndex % 2 !== 0 ? 'bg-card-secondary/40' : 'bg-card'}">
+                            ${row.map(cell => `<td class="p-3 text-sm text-text-secondary">${processInlineMarkdown(cell)}</td>`).join('')}
+                        </tr>
+                    `).join('')}</tbody>`;
+
+                    return `
+                        <div class="my-4 overflow-x-auto rounded-lg border border-border">
+                            <table class="min-w-full text-left">${headerHtml}${bodyHtml}</table>
+                        </div>
+                    `;
+                }
+            }
+            // --- END: Markdown Table Parsing ---
 
             const isUnorderedList = block.match(/^\s*(\*|-)\s/m);
             const isOrderedList = block.match(/^\s*\d+\.\s/m);

@@ -219,45 +219,30 @@ const App: React.FC = () => {
         setIsCameraOpen(false);
     };
     
-    const extractPagesFromPdf = async (base64Data: string): Promise<string[]> => {
-        try {
-            const pdf = await pdfjsLib.getDocument({ data: atob(base64Data) }).promise;
-            const pages: string[] = [];
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const textContent = await page.getTextContent();
-                const pageText = textContent.items.map((item: any) => item.str).join(' ');
-                pages.push(pageText);
-            }
-            return pages;
-        } catch (error) {
-            console.error("PDF page extraction failed:", error);
-            throw new Error("Không thể trích xuất nội dung từ tệp PDF.");
-        }
-    };
-
     const handleSendMessage = async () => {
-        if (isLoading || (!input.trim() && uploadedFiles.length === 0)) return;
+        const userQuery = input.trim();
+        const hasPdf = uploadedFiles.some(f => f.type === 'application/pdf');
+
+        if (isLoading || (userQuery.length === 0 && uploadedFiles.length === 0)) return;
+        if (hasPdf && userQuery.length === 0) return;
 
         setIsLoading(true);
-        const userQuery = input.trim();
-        let userParts: Part[] = [];
 
         const pdfFile = uploadedFiles.find(f => f.type === 'application/pdf');
         const imageFiles = uploadedFiles.filter(f => f.type !== 'application/pdf');
 
-        // Show user message immediately
-        const userMessage: ChatMessage = {
+        // Show user message immediately in the UI
+        const userMessageForUI: ChatMessage = {
             role: 'user',
             parts: userQuery ? [{ text: userQuery }] : [],
             pdfAttachment: pdfFile ? { name: pdfFile.name, base64Data: pdfFile.base64Data } : undefined
         };
         imageFiles.forEach(file => {
-            userMessage.parts.push({
+            userMessageForUI.parts.push({
                 inlineData: { mimeType: file.type, data: file.base64Data },
             });
         });
-        const currentHistory: ChatMessage[] = [...messages, userMessage];
+        const currentHistory: ChatMessage[] = [...messages, userMessageForUI];
         setMessages(currentHistory);
         setInput('');
         setUploadedFiles([]);
@@ -281,22 +266,22 @@ const App: React.FC = () => {
         setMessages(prev => [...prev, modelMessagePlaceholder]);
 
         try {
-            // Rebuild user parts for AI context, especially for PDFs
-            if (userQuery) userParts.push({ text: userQuery });
-            imageFiles.forEach(file => userParts.push({
+            // Build parts for the actual AI API call
+            let userPartsForAI: Part[] = [];
+            if (userQuery) {
+                userPartsForAI.push({ text: userQuery });
+            }
+            imageFiles.forEach(file => userPartsForAI.push({
                 inlineData: { mimeType: file.type, data: file.base64Data }
             }));
-
             if (pdfFile) {
-                const pages = await extractPagesFromPdf(pdfFile.base64Data);
-                const fullPdfText = pages.join('\n\n---\n\n');
-                const contextualPrompt = `Dựa vào nội dung tài liệu được cung cấp dưới đây, hãy thực hiện yêu cầu sau của người dùng: "${userQuery || 'Giải quyết các bài tập trong tài liệu.'}"\n\n[NỘI DUNG TÀI LIỆU]\n${fullPdfText}`;
-                // Replace the user's potentially empty query with the full contextual one
-                userParts = [{ text: contextualPrompt }];
+                userPartsForAI.push({
+                    inlineData: { mimeType: pdfFile.type, data: pdfFile.base64Data }
+                });
             }
 
             // Create the final message history for the AI
-            const finalUserMessage: ChatMessage = { role: 'user', parts: userParts };
+            const finalUserMessage: ChatMessage = { role: 'user', parts: userPartsForAI };
             const finalHistory = [...messages, finalUserMessage];
             
             // --- Unified AI Call ---
@@ -317,7 +302,7 @@ const App: React.FC = () => {
                     if (!block) return;
                     const trimmedBlock = block.trim();
                     if (!trimmedBlock) return;
-                
+
                     const jsonStartIndex = trimmedBlock.indexOf('{');
                     const jsonEndIndex = trimmedBlock.lastIndexOf('}');
                 
@@ -325,17 +310,30 @@ const App: React.FC = () => {
                     let parsedJson: SolvedQuestion | null = null;
                     
                     if (jsonStartIndex !== -1 && jsonEndIndex > jsonStartIndex) {
-                        const potentialJson = trimmedBlock.substring(jsonStartIndex, jsonEndIndex + 1);
+                        let potentialJson = trimmedBlock.substring(jsonStartIndex, jsonEndIndex + 1);
                         try {
+                            // Regex "safety net" to fix common JSON format errors from the AI before parsing.
+                            
+                            // 1. Fix unquoted single-word answers (A, B, C, D, Đúng, Sai).
+                            potentialJson = potentialJson.replace(/"answer":\s*(A|B|C|D|Đúng|Sai)\s*(?=[,}])/g, '"answer": "$1"');
+                            
+                            // 2. Fix unquoted numeric values for keys that should be strings ("answer", "number").
+                            potentialJson = potentialJson.replace(/"(answer|number)":\s*(-?\d+(\.\d+)?)\s*(?=[,}])/g, '"$1": "$2"');
+                        
+                            // 3. Fix Python-style booleans (True/False) for "isComplete".
+                            potentialJson = potentialJson.replace(/"isComplete":\s*(True|False)\s*(?=[,}])/gi, (match, p1) => `"isComplete": ${p1.toLowerCase()}`);
+                            
                             parsedJson = JSON.parse(potentialJson) as SolvedQuestion;
                             preambleText = trimmedBlock.substring(0, jsonStartIndex);
                         } catch (e) {
+                            // If JSON parsing fails, keep the original block as preamble text
                             parsedJson = null;
+                            preambleText = trimmedBlock;
                         }
                     }
                     
                     const cleanedPreamble = preambleText
-                        .replace(/(?:```(?:json)?|`json|"json|json)\s*$/, '')
+                        .replace(/(?:via-\s*)?(?:```(?:json)?|`json|"json|json)\s*$/i, '')
                         .trim();
                 
                     if (cleanedPreamble) {
@@ -344,9 +342,7 @@ const App: React.FC = () => {
                                 const newParts = [...(msg.parts || [])];
                                 const lastPart = newParts[newParts.length - 1];
                                 if (lastPart && lastPart.text !== undefined) {
-                                    if (!lastPart.text.includes(cleanedPreamble)) {
-                                         lastPart.text += (lastPart.text ? '\n\n' : '') + cleanedPreamble;
-                                    }
+                                     lastPart.text += (lastPart.text ? '\n' : '') + cleanedPreamble;
                                 } else {
                                     newParts.push({ text: cleanedPreamble });
                                 }
@@ -387,6 +383,7 @@ const App: React.FC = () => {
                         buffer = parts[parts.length - 1];
                     }
                 }
+                // Process any remaining data in the buffer
                 processStreamBlock(buffer);
             } else {
                  // --- Standard Text & Single JSON Streaming Logic ---
@@ -552,6 +549,7 @@ const App: React.FC = () => {
                             uploadedFiles={uploadedFiles}
                             onClearAllFiles={onClearAllFiles}
                             onRemoveFile={onRemoveFile}
+                            hasPdf={uploadedFiles.some(f => f.type === 'application/pdf')}
                         />
                     </div>
                 );

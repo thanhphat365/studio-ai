@@ -13,6 +13,7 @@ interface ChatInputProps {
   uploadedFiles: UploadedFile[];
   onClearAllFiles: () => void;
   onRemoveFile: (index: number) => void;
+  hasPdf: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -25,14 +26,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
   uploadedFiles,
   onClearAllFiles,
   onRemoveFile,
+  hasPdf,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
+  const isSendDisabled = 
+    isLoading || 
+    (!input.trim() && uploadedFiles.length === 0) || 
+    (hasPdf && !input.trim());
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (!isLoading) {
+      if (!isSendDisabled) {
         handleSendMessage();
       }
     }
@@ -157,8 +164,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               />
               <button
                   onClick={handleSendMessage}
-                  disabled={isLoading || (!input.trim() && uploadedFiles.length === 0)}
+                  disabled={isSendDisabled}
                   className="self-end bg-primary hover:bg-primary-hover disabled:bg-primary/50 disabled:cursor-not-allowed text-primary-text rounded-lg w-10 h-10 flex items-center justify-center shrink-0 transition-colors"
+                  title={hasPdf && !input.trim() ? "Vui lòng nhập câu hỏi cho tệp PDF" : "Gửi tin nhắn"}
               >
                   {isLoading ? <Spinner /> : <SendIcon className="w-5 h-5" />}
               </button>

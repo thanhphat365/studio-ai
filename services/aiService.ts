@@ -17,24 +17,12 @@ export const generateImage = (prompt: string): Promise<string> => {
 }
 
 const STRICT_JSON_RULES = `
-**QUY TẮC ĐỊNH DẠNG JSON CỰC KỲ QUAN TRỌNG - BẮT BUỘC TUÂN THỦ:**
-Toàn bộ phản hồi của bạn PHẢI là các đối tượng JSON hợp lệ. Các chuỗi bên trong JSON (ví dụ: giá trị của khóa "steps") phải được escape (thoát ký tự) một cách chính xác. Việc không tuân thủ sẽ gây ra lỗi nghiêm trọng khi phân tích cú pháp.
-
-1.  **DẤU GẠCH CHÉO NGƯỢC (Backslash \`\\\`):** PHẢI được escape thành hai dấu gạch chéo ngược \`\\\\\`. Điều này CỰC KỲ QUAN TRỌNG đối với các công thức LaTeX.
-    - **SAI (gây lỗi):**  \`{"steps": "Công thức là $\\frac{1}{2}$"}\`
-    - **ĐÚNG:** \`{"steps": "Công thức là $\\\\\frac{1}{2}$"}\`
-
-2.  **KÝ TỰ XUỐNG DÒNG (Newline):** PHẢI được thay thế bằng chuỗi \`\\\\n\`. TUYỆT ĐỐI không được có ký tự xuống dòng thật sự trong chuỗi. Điều này đặc biệt quan trọng khi tạo bảng Markdown.
-    - **SAI (gây lỗi):** \`{"steps": "Dòng 1
-Dòng 2"}\`
-    - **ĐÚNG:** \`{"steps": "Dòng 1\\\\nDòng 2"}\`
-    - **VÍ DỤ VỚI BẢNG:** Chuỗi cho một bảng phải là một dòng duy nhất, ví dụ: \`"| Cột 1 | Cột 2 |\\\\n|---|---|\\\\n| a | b |"\`
-
-3.  **DẤU NGOẶC KÉP (Quote \`"\`):** Dấu ngoặc kép bên trong chuỗi PHẢI được escape bằng cách thêm một dấu gạch chéo ngược phía trước nó \`\\"\`.
-    - **SAI (gây lỗi):**  \`{"steps": "Đây là một "ví dụ""}\`
-    - **ĐÚNG:** \`{"steps": "Đây là một \\"ví dụ\\""}\`
-
-**KIỂM TRA LẠI TRƯỚC KHI XUẤT:** Hãy chắc chắn rằng mọi chuỗi JSON bạn tạo ra đều tuân thủ 3 quy tắc trên. Đây là yêu cầu quan trọng nhất.
+**QUY TẮC ĐỊNH DẠNG JSON - BẮT BUỘC TUÂN THỦ:**
+Toàn bộ phản hồi của bạn PHẢI là các đối tượng JSON hợp lệ.
+1.  **Nội dung chuỗi (string):** Bên trong các chuỗi JSON (ví dụ: giá trị của khóa "steps"), hãy sử dụng Markdown và LaTeX tiêu chuẩn.
+    -   Sử dụng \`\\n\` cho các lần xuống dòng.
+    -   Sử dụng các lệnh LaTeX tiêu chuẩn như \`\\frac\`, \`\\sqrt\`, v.v.
+2.  **Ký tự đặc biệt:** Các ký tự đặc biệt trong JSON như \`"\` và \`\\\` phải được escape đúng cách (thành \`\\" \` và \`\\\\ \`).
 `;
 
 export const getSystemInstruction = (
@@ -57,6 +45,9 @@ export const getSystemInstruction = (
             instruction += `
             CHẾ ĐỘ: HƯỚNG DẪN TỪNG BƯỚC (SOCRATIC)
             Mục tiêu: Hướng dẫn người dùng tự tìm ra câu trả lời, không đưa ra lời giải ngay lập tức.
+            
+            **LƯU Ý KHI CÓ TÀI LIỆU:** Nếu người dùng tải lên một tài liệu (PDF, ảnh) và chỉ hỏi về một câu hỏi cụ thể trong đó (ví dụ: "giúp mình câu 3b"), hãy tập trung hoàn toàn vào việc hướng dẫn họ giải quyết câu hỏi đó. Bỏ qua các câu hỏi khác trong tài liệu.
+
             Quy trình:
             1.  **Phân tích & Lập kế hoạch:** Bắt đầu bằng cách xác định các khái niệm chính và các bước cần thiết để giải quyết vấn đề. Trình bày kế hoạch này một cách ngắn gọn. Ví dụ: "Để giải bài toán này, chúng ta sẽ cần áp dụng định lý X và công thức Y. Đầu tiên, chúng ta sẽ tìm giá trị của A, sau đó..."
             2.  **Gợi mở Bước đầu tiên:** Đặt một câu hỏi gợi mở để người dùng bắt đầu bước đầu tiên. KHÔNG giải bước đó. Ví dụ: "Đầu tiên, bạn hãy thử tính giá trị của X dựa vào công thức Z xem sao?"
@@ -71,46 +62,59 @@ export const getSystemInstruction = (
         case 'solve_direct':
             instruction += `
             CHẾ ĐỘ: GIẢI CHI TIẾT
-            Mục tiêu: Cung cấp một lời giải đầy đủ, rõ ràng, và dễ hiểu, được cấu trúc dưới dạng các đối tượng JSON riêng lẻ cho từng câu hỏi.
+            Mục tiêu: Cung cấp lời giải chi tiết, đầy đủ và chính xác cho các bài tập.
 
-            QUY TRÌNH BẮT BUỘC:
-            1.  **Phân tích:** Đọc và hiểu tất cả các câu hỏi trong yêu cầu của người dùng.
-            2.  **Giải và Xuất lần lượt:** Giải quyết từng câu hỏi một cách tuần tự. Đối với MỖI câu hỏi đã giải quyết, hãy tạo ra MỘT đối tượng JSON DUY NHẤT chứa lời giải cho câu hỏi đó.
-            3.  **Tách biệt các JSON:** Sau khi hoàn thành một đối tượng JSON cho một câu hỏi, hãy chèn một dấu phân cách ĐẶC BIỆT và DUY NHẤT là \`\n\n[NOVA_JSON_SEPARATOR]\n\n\` trước khi bắt đầu giải và tạo JSON cho câu hỏi tiếp theo.
-            4.  **KHÔNG BAO BỌC:** TUYỆT ĐỐI không bao bọc tất cả các đối tượng JSON trong một mảng hoặc một đối tượng gốc ("solution", "questions", ...). Chỉ cần xuất ra các đối tượng JSON riêng lẻ, được ngăn cách bởi dấu phân cách đã chỉ định.
-            ${STRICT_JSON_RULES}
-            CẤU TRÚC ĐỐI TƯỢNG JSON CHO MỖI CÂU HỎI:
-            -   \`"number"\` (string, bắt buộc): Số thứ tự của câu hỏi (ví dụ: "1", "2a", "III.1").
-            -   \`"test_code"\` (string, tùy chọn): Mã đề thi nếu có.
-            -   \`"isComplete"\` (boolean): Luôn đặt là \`true\`.
-            -   **PHÂN BIỆT CÂU HỎI ĐƠN VÀ CÂU HỎI CÓ NHIỀU PHẦN:**
-            -   **NẾU CÂU HỎI CÓ NHIỀU PHẦN RÕ RỆT (ví dụ: Phần a, Phần b; hoặc 1, 2... bên trong một câu lớn):**
-                -   Trường \`"steps"\` ở cấp độ câu hỏi PHẢI được bỏ qua. Toàn bộ lời giải phải nằm trong từng phần con.
-                -   Bắt buộc sử dụng trường \`"parts"\` là một mảng các đối tượng.
-                -   Mỗi đối tượng phần PHẢI chứa: \`"number"\` (string), \`"isComplete"\`: true, và ít nhất một trong hai trường: \`"steps"\` (string) hoặc \`"answer"\` (string).
-            -   **NẾU CÂU HỎI LÀ MỘT KHỐI DUY NHẤT (không có phần a, b, c...):**
-                -   Sử dụng trường \`"steps"\` và/hoặc \`"answer"\` ở cấp độ câu hỏi để chứa lời giải và đáp án.
-                -   Trường \`"parts"\` phải được bỏ qua hoặc là một mảng rỗng.
-            
-            VÍ DỤ VỀ ĐẦU RA KHI CÓ 2 CÂU HỎI (Toàn bộ phản hồi của bạn sẽ có dạng như sau):
-            {"number":"1","test_code":"101","isComplete":true,"steps":"Lời giải cho câu 1...","answer":"Đáp án câu 1"}
+            QUY TRÌNH LÀM VIỆC:
+            1.  **PHÂN TÍCH YÊU CẦU:** Khi nhận được tài liệu (PDF, hình ảnh) KÈM THEO lời nhắc văn bản, hãy phân tích lời nhắc để xác định phạm vi công việc.
+                -   **Yêu cầu cụ thể:** Nếu người dùng chỉ định câu hỏi cụ thể (ví dụ: "giải câu 5 và 7", "làm phần trắc nghiệm"), hãy lướt qua tài liệu, **chỉ tìm và giải những câu được yêu cầu**. Bỏ qua tất cả các phần khác.
+                -   **Yêu cầu chung:** Nếu người dùng yêu cầu chung chung (ví dụ: "giải hết bài này"), hãy giải quyết tuần tự từng câu hỏi một từ đầu đến cuối tài liệu.
+            2.  **Xử lý TUẦN TỰ (theo phạm vi đã xác định):** Giải quyết từng câu hỏi một trong phạm vi đã xác định.
+            3.  **TẠO JSON CHO MỖI CÂU:** Với MỖI câu hỏi, tạo ra MỘT đối tượng JSON DUY NHẤT chứa toàn bộ lời giải. JSON phải hợp lệ.
+            4.  **PHÂN CÁCH:** Sau mỗi khối JSON, chèn dấu phân cách: \`\n\n[NOVA_JSON_SEPARATOR]\n\n\`.
+            5.  **XỬ LÝ NHIỀU TRANG:** Nếu tài liệu có nhiều trang, hãy thông báo khi bạn chuyển trang (ví dụ: \`Đang xử lý trang 2...\`) trước khi tiếp tục xuất JSON.
+
+            ĐỊNH DẠNG JSON (BẮT BUỘC):
+            - Bên trong các chuỗi JSON, sử dụng Markdown và LaTeX tiêu chuẩn (ví dụ: \`\\n\`, \`$\\frac{a}{b}$\`).
+            - \`"number"\` (string): Số thứ tự câu hỏi (ví dụ: "1", "II.2.a").
+            - \`"test_code"\` (string, tùy chọn): Mã đề thi.
+            - \`"isComplete"\` (boolean): Luôn là \`true\`.
+            - \`"steps"\` (string, tùy chọn): Các bước giải chi tiết.
+            - \`"answer"\` (string, tùy chọn): Đáp án cuối cùng.
+            - \`"parts"\` (mảng, tùy chọn): Dùng cho câu hỏi có nhiều phần (a, b, c...). Mỗi phần là một đối tượng JSON có cấu trúc tương tự. Nếu dùng \`"parts"\`, không dùng \`"steps"\` ở cấp cao nhất.
+
+            VÍ DỤ MẪU:
+            {"number":"1","isComplete":true,"steps":"Phương trình $x^2 - 1 = 0$ có nghiệm là $x = \\\\pm 1$. Công thức được sử dụng là $a^2 - b^2 = (a-b)(a+b)$."}
 
             [NOVA_JSON_SEPARATOR]
 
-            {"number":"2","isComplete":true,"parts":[{"number":"a","steps":"Lời giải phần a câu 2.","isComplete":true},{"number":"b","answer":"Đáp án phần b câu 2.","isComplete":true}]}
+            {"number":"2","isComplete":true,"parts":[{"number":"a","isComplete":true,"steps":"Lời giải cho phần a..."},{"number":"b","isComplete":true,"answer":"Đáp án cho phần b."}]}
+
+            **CẢNH BÁO - TUÂN THỦ NGHIÊM NGẶT:**
+            - Mọi giá trị chuỗi (string) trong JSON PHẢI được đặt trong dấu ngoặc kép (\`"\`). Điều này đặc biệt quan trọng đối với khóa \`"answer"\` và \`"number"\`.
+            - Các câu trả lời ngắn như "A", "B", "Đúng", "Sai" cũng phải được trích dẫn.
+              - **SAI:** \`{"answer": A}\`
+              - **ĐÚNG:** \`{"answer": "A"}\`
+            - **GIÁ TRỊ SỐ:** Ngay cả khi đáp án hoặc số câu là một con số, nó PHẢI được trả về dưới dạng chuỗi (string).
+              - **SAI:** \`{"number": 1, "answer": 128}\`
+              - **ĐÚNG:** \`{"number": "1", "answer": "128"}\`
+            - **KÝ TỰ ĐẶC BIỆT:** Bên trong một giá trị chuỗi, mọi ký tự \`"\` (dấu ngoặc kép) phải được escape bằng cách thêm một dấu gạch chéo ngược phía trước (ví dụ: \`\\"\`).
+              - **SAI:** \`{"steps": "Hàm số đạt cực đại tại điểm "x=1"."}\`
+              - **ĐÚNG:** \`{"steps": "Hàm số đạt cực đại tại điểm \\"x=1\\"."}\`
             `;
             break;
         case 'solve_final_answer':
              instruction += `
             CHẾ ĐỘ: CHỈ XEM ĐÁP ÁN
-            Mục tiêu: Cung cấp đáp án cuối cùng một cách nhanh chóng và chính xác, thường ở dạng bảng cho các bài tập trắc nghiệm hoặc điền khuyết.
-            Quy trình:
-            1.  Phân tích tất cả các câu hỏi trong tài liệu/hình ảnh được cung cấp.
-            2.  Xác định đáp án chính xác cho từng câu.
-            3.  Định dạng đầu ra là một đối tượng JSON DUY NHẤT chứa một khóa "finalAnswers".
-            4.  Cấu trúc của "finalAnswers" phải là: { "title": "Bảng Đáp Án [Tên Môn Học/Đề Thi]", "answers": [{ "number": "1", "answer": "A" }, { "number": "2", "answer": "C" }, ...] }.
-            5.  KHÔNG thêm bất kỳ văn bản, giải thích, hay lời chào nào khác ngoài đối tượng JSON này. Toàn bộ phản hồi phải là một khối mã JSON hợp lệ.
-            ${STRICT_JSON_RULES}
+            Mục tiêu: Cung cấp đáp án cuối cùng một cách nhanh chóng và chính xác.
+            
+            QUY TRÌNH:
+            1.  **PHÂN TÍCH YÊU CẦU:** Đọc kỹ lời nhắc của người dùng để xác định họ muốn đáp án cho TOÀN BỘ tài liệu hay chỉ một PHẦN CỤ THỂ (ví dụ: "chỉ phần trắc nghiệm").
+            2.  **TRÍCH XUẤT ĐÁP ÁN:** Chỉ trích xuất đáp án cho các câu hỏi trong phạm vi đã được yêu cầu.
+            3.  **ĐỊNH DẠNG JSON:** Định dạng đầu ra là một đối tượng JSON DUY NHẤT chứa một khóa "finalAnswers".
+            4.  **Cấu trúc "finalAnswers"**: { "title": "Bảng Đáp Án [Tên Môn Học/Đề Thi]", "answers": [{ "number": "1", "answer": "A" }, { "number": "2", "answer": "C" }, ...] }.
+            5.  **KHÔNG THÊM NỘI DUNG KHÁC:** KHÔNG thêm bất kỳ văn bản, giải thích, hay lời chào nào khác ngoài đối tượng JSON này. Toàn bộ phản hồi phải là một khối mã JSON hợp lệ.
+            
+            **QUY TẮC JSON:** Phản hồi của bạn PHẢI là một đối tượng JSON hợp lệ. Đảm bảo rằng tất cả các ký tự đặc biệt (dấu ngoặc kép, dấu gạch chéo ngược) được escape đúng chuẩn JSON.
             `;
             break;
         case 'review':
@@ -125,6 +129,12 @@ export const getSystemInstruction = (
             `;
             break;
     }
+
+    // A small correction for final_answer mode to reinforce JSON validity
+    if (mode === 'solve_final_answer') {
+        instruction = instruction.replace(STRICT_JSON_RULES, '**QUY TẮC JSON:** Phản hồi của bạn PHẢI là một đối tượng JSON hợp lệ. Đảm bảo rằng tất cả các ký tự đặc biệt (dấu ngoặc kép, dấu gạch chéo ngược) được escape đúng chuẩn JSON.');
+    }
+
 
     return instruction;
 };
