@@ -1,3 +1,5 @@
+
+
 import React from 'react';
 import { XCircleIcon } from './Icons';
 
@@ -13,7 +15,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
                     <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
                         <XCircleIcon className="w-6 h-6" />
                     </button>
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Chi tiết phiên bản v1.0.0</h2>
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Chi tiết phiên bản v1.1.0</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">Các tính năng và cải tiến chính trong phiên bản này.</p>
                     
                     <ul className="space-y-4 text-gray-700 dark:text-gray-300">
@@ -21,7 +23,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
                             <span className="text-indigo-500 font-bold mr-3">✔</span>
                             <div>
                                 <h3 className="font-semibold">Hệ thống Tài khoản</h3>
-                                <p className="text-sm text-gray-600 dark:text-gray-400">Lưu lại lịch sử trò chuyện và cài đặt học tập của bạn. Đăng nhập để tiếp tục phiên làm việc trên mọi thiết bị.</p>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">Lưu lại lịch sử trò chuyện và cài đặt học tập của bạn.</p>
                             </div>
                         </li>
                         <li className="flex items-start">
@@ -41,7 +43,7 @@ const ChangelogModal: React.FC<ChangelogModalProps> = ({ onClose }) => {
                         <li className="flex items-start">
                             <span className="text-indigo-500 font-bold mr-3">✔</span>
                             <div>
-                                <h3 className="font-semibold">Tạo Hình ảnh Minh họa</h3>
+                                <h3 className="font-semibold">Tạo Hình ảnh Minh họa (Gemini)</h3>
                                 <p className="text-sm text-gray-600 dark:text-gray-400">NOVA có thể tự động tạo hình ảnh để giải thích các khái niệm phức tạp, giúp việc học trở nên sinh động hơn.</p>
                             </div>
                         </li>

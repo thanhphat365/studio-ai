@@ -74,6 +74,11 @@
         --color-primary: 202 138 4;      /* yellow-600 */
         --color-primary-hover: 180 83 9;   /* amber-700 */
       }
+
+      @keyframes indeterminate-progress {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
     </style>
     <script>
       // Helper function to convert rgb to hex for tailwind
@@ -124,12 +129,12 @@
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
 
-    <!-- PDF.js from Mozilla CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <!-- PDF.js from unpkg CDN -->
+    <script src="https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.min.js"></script>
     <script>
       // The workerSrc property must be specified for PDF.js to work.
        if (typeof pdfjsLib !== 'undefined') {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@2.16.105/build/pdf.worker.min.js`;
       }
     </script>
 
@@ -142,10 +147,11 @@
   <script type="importmap">
 {
   "imports": {
-    "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "react": "https://aistudiocdn.com/react@^19.1.1",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.20.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/"
+    "react": "https://esm.sh/react@18.2.0",
+    "react/": "https://esm.sh/react@18.2.0/",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react-dom/": "https://esm.sh/react-dom@18.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.20.0"
   }
 }
 </script>

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { NovaIcon } from './Icons';
 
@@ -35,7 +36,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginClick, onGuestContinue, 
       </div>
       <div className="absolute bottom-6 text-center">
           <button onClick={onChangelogClick} className="text-sm text-gray-400 hover:text-gray-200 underline transition-colors">
-              Xem chi tiết phiên bản v1.0.0
+              Xem chi tiết phiên bản v1.1.0
           </button>
       </div>
     </div>

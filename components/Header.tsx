@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import LevelSelector from './LevelSelector';
 import ModeSelector from './ModeSelector';
-import { NovaIcon, UserIcon, PaintBrushIcon } from './Icons';
+import { NovaIcon, ChevronDownIcon, PaintBrushIcon } from './Icons';
 import { EducationalStage, DifficultyLevel, ThemePalette, User, LearningMode } from '../types';
 
 interface HeaderProps {
@@ -88,6 +88,55 @@ const ThemeSelector: React.FC<{
         </div>
     );
 };
+
+const LevelDropdown: React.FC<{
+    selectedStage: EducationalStage;
+    setSelectedStage: (stage: EducationalStage) => void;
+    selectedDifficulty: DifficultyLevel;
+    setSelectedDifficulty: (difficulty: DifficultyLevel) => void;
+    isLoading: boolean;
+}> = ({ selectedStage, setSelectedStage, selectedDifficulty, setSelectedDifficulty, isLoading }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+    
+    const buttonClasses = "appearance-none flex items-center justify-between w-full bg-card-secondary border border-border text-text-primary py-2 px-3 rounded-lg leading-tight focus:outline-none focus:bg-card focus:border-primary text-sm transition-colors";
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                disabled={isLoading}
+                className={buttonClasses}
+                aria-haspopup="true"
+                aria-expanded={isOpen}
+            >
+                <span className="truncate">{selectedStage}</span>
+                <ChevronDownIcon className={`w-4 h-4 ml-2 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {isOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-card rounded-md shadow-lg p-4 ring-1 ring-black ring-opacity-5 z-30 border border-border">
+                    <LevelSelector 
+                        selectedStage={selectedStage} 
+                        setSelectedStage={setSelectedStage}
+                        selectedDifficulty={selectedDifficulty}
+                        setSelectedDifficulty={setSelectedDifficulty}
+                        isLoading={isLoading} 
+                    />
+                </div>
+            )}
+        </div>
+    );
+};
     
 const Header: React.FC<HeaderProps> = ({
   themePalette,
@@ -98,7 +147,6 @@ const Header: React.FC<HeaderProps> = ({
   selectedStage,
   setSelectedStage,
   selectedDifficulty,
-  // FIX: Ensured 'setSelectedDifficulty' prop is destructured correctly to prevent 'Cannot find name' error.
   setSelectedDifficulty,
   isLoading,
   currentUser,
@@ -165,13 +213,13 @@ const Header: React.FC<HeaderProps> = ({
                 <span className="text-xl font-bold text-text-primary hidden sm:block">NOVA</span>
             </a>
         </div>
-        <div className="flex-shrink-0 flex items-center gap-2 sm:gap-4">
+        <div className="flex-shrink-0 flex flex-wrap items-center justify-center gap-2 sm:gap-3">
             <ModeSelector 
               learningMode={learningMode}
               setLearningMode={setLearningMode}
               isLoading={isLoading}
             />
-            <LevelSelector 
+            <LevelDropdown 
                 selectedStage={selectedStage} 
                 setSelectedStage={setSelectedStage}
                 selectedDifficulty={selectedDifficulty}

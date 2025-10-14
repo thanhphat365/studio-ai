@@ -5,8 +5,8 @@ import { NovaIcon, CheckCircleIcon, ChevronDownIcon, DocumentTextIcon } from './
 const parseMarkdown = (text: string) => {
     if (!text) return { __html: '' };
 
-    // FIX: Unescape newlines AND backslashes for proper LaTeX rendering
-    const unescapedText = text.replace(/\\n/g, '\n').replace(/\\\\/g, '\\');
+    // FIX: Unescape the literal '\\n' that the AI might send in plain text due to strict JSON rules.
+    const unescapedText = text.replace(/\\n/g, '\n');
 
     const placeholders = new Map<string, string>();
     const addPlaceholder = (content: string) => {
@@ -70,17 +70,6 @@ const parseMarkdown = (text: string) => {
                 return `<${listTag} class="${listClasses}">${listHtml}</${listTag}>`;
             }
 
-            // NEW: Detect and format ASCII-art tables (like sign tables)
-            const lines = block.split('\n');
-            const isAsciiTable = lines.length > 2 && lines.filter(line => line.trim().includes('|')).length >= lines.length / 2;
-
-            if (isAsciiTable) {
-                const escapedBlock = block.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                // Use <pre><code> with monospace font to preserve alignment
-                return `<pre class="bg-card-secondary rounded-md p-3 my-2 overflow-x-auto font-mono text-sm leading-normal"><code>${escapedBlock}</code></pre>`;
-            }
-
-
             const processedBlock = processInlineMarkdown(block);
             return `<p class="leading-relaxed">${processedBlock.replace(/\n/g, '<br>')}</p>`;
         })
@@ -127,8 +116,7 @@ const ChatMessageContent: React.FC<{ part: Part, isStreaming?: boolean }> = ({ p
             />
         );
     } else if (part.text) {
-        // Add a wrapper div with spacing for paragraphs, lists etc.
-        return <div ref={contentRef} className="space-y-3" dangerouslySetInnerHTML={parseMarkdown(part.text)} />;
+        return <div ref={contentRef} dangerouslySetInnerHTML={parseMarkdown(part.text)} />;
     }
     return null;
 };
@@ -162,18 +150,23 @@ const ThinkingIndicator: React.FC<{ specificMessage?: string }> = ({ specificMes
     }, [specificMessage]);
     
     return (
-        <div className="flex flex-col gap-3 w-64">
-            <div className="flex items-center space-x-2 text-text-secondary/90">
-                <div className="flex items-center space-x-1.5">
-                    <div className="w-2 h-2 bg-current rounded-full animate-pulse [animation-delay:-0.3s]"></div>
-                    <div className="w-2 h-2 bg-current rounded-full animate-pulse [animation-delay:-0.15s]"></div>
-                    <div className="w-2 h-2 bg-current rounded-full animate-pulse"></div>
-                </div>
-                <span className="text-sm transition-opacity duration-300">{message}</span>
+        <div className="flex items-center space-x-2 text-text-secondary/90">
+            <div className="flex items-center space-x-1.5">
+              {specificMessage ? (
+                <>
+                  <div className="w-1.5 h-1.5 bg-current rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-current rounded-full"></div>
+                  <div className="w-1.5 h-1.5 bg-current rounded-full"></div>
+                </>
+              ) : (
+                <>
+                  <div className="w-2 h-2 bg-current rounded-full animate-pulse [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 bg-current rounded-full animate-pulse [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 bg-current rounded-full animate-pulse"></div>
+                </>
+              )}
             </div>
-             <div className="relative w-full h-1 bg-border/20 rounded-full overflow-hidden">
-                <div className="absolute top-0 left-0 h-full w-1/3 bg-gradient-to-r from-primary/50 to-primary rounded-full animate-[indeterminate-progress_2s_ease-in-out_infinite]"></div>
-            </div>
+            <span className="text-sm transition-opacity duration-300">{message}</span>
         </div>
     );
 };
@@ -238,12 +231,12 @@ const PartDisplay: React.FC<{ part: SolvedPart, isActive: boolean, index: number
                 <div className="overflow-hidden">
                     <div className="px-3 pb-3 pt-1">
                         {part.steps && (
-                            <div className="pl-2.5 border-l-2 border-primary/40 mb-3 text-sm space-y-3" dangerouslySetInnerHTML={parseMarkdown(part.steps)} />
+                            <div className="pl-2.5 border-l-2 border-primary/40 mb-3 text-sm" dangerouslySetInnerHTML={parseMarkdown(part.steps)} />
                         )}
                         {part.answer && (
                             <div>
                                 <h5 className="font-semibold text-text-secondary text-xs mb-1">Đáp án:</h5>
-                                <div className="text-text-primary text-sm space-y-3" dangerouslySetInnerHTML={parseMarkdown(part.answer)} />
+                                <div className="text-text-primary text-sm" dangerouslySetInnerHTML={parseMarkdown(part.answer)} />
                             </div>
                         )}
                     </div>
@@ -320,7 +313,7 @@ const QuestionDisplay: React.FC<{ question: SolvedQuestion, isActive: boolean, i
                 <div className="overflow-hidden">
                     <div className="px-4 pb-4 pt-1">
                         {question.steps && (
-                            <div className="pl-3 border-l-2 border-primary/50 mb-4 space-y-3" dangerouslySetInnerHTML={parseMarkdown(question.steps)} />
+                            <div className="pl-3 border-l-2 border-primary/50 mb-4" dangerouslySetInnerHTML={parseMarkdown(question.steps)} />
                         )}
                         
                         {question.parts && question.parts.length > 0 && (
@@ -339,7 +332,7 @@ const QuestionDisplay: React.FC<{ question: SolvedQuestion, isActive: boolean, i
                         {question.answer && (
                             <div className="mt-4">
                                 <h4 className="font-semibold text-text-secondary text-sm mb-1">Đáp án:</h4>
-                                <div className="text-text-primary space-y-3" dangerouslySetInnerHTML={parseMarkdown(question.answer)} />
+                                <div className="text-text-primary" dangerouslySetInnerHTML={parseMarkdown(question.answer)} />
                             </div>
                         )}
                     </div>
@@ -485,7 +478,7 @@ const ChatMessageComponent: React.FC<ChatMessageComponentProps> = ({ message, on
     : 'bg-card text-text-primary self-start rounded-t-2xl rounded-br-2xl border border-border';
   
   const paddingAndWidthClasses = showThinkingIndicator
-    ? 'p-4'
+    ? 'p-3'
     : 'p-4 max-w-2xl';
 
   const pageProcessingText = message.role === 'model' && message.parts[0]?.text?.startsWith('Đang xử lý trang') ? message.parts[0].text : null;

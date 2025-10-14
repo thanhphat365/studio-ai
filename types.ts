@@ -1,24 +1,4 @@
-
-export enum EducationalStage {
-  Elementary = 'Tiểu học',
-  MiddleSchool = 'Trung học cơ sở',
-  HighSchool = 'Trung học phổ thông',
-}
-
-export enum DifficultyLevel {
-  Basic = 'Cơ bản',
-  Advanced = 'Nâng cao',
-}
-
-export type LearningMode = 'solve_socratic' | 'solve_direct' | 'review' | 'solve_final_answer';
-
-export type ThemePalette = 'default' | 'mint' | 'twilight' | 'sepia' | 'custom';
-
-export interface CustomThemeColors {
-    background: string; // hex color
-    text: string;       // hex color
-    primary: string;    // hex color
-}
+// types.ts
 
 export interface Part {
   text?: string;
@@ -28,41 +8,81 @@ export interface Part {
   };
 }
 
+export interface SolvedPart {
+  number: string;
+  steps?: string;
+  answer?: string;
+  isComplete?: boolean;
+}
+
 export interface SolvedQuestion {
-    number: string;
-    steps: string;
-    answer: string;
-    isComplete: boolean;
+  test_code?: string;
+  number: string;
+  steps?: string;
+  answer?: string;
+  parts?: SolvedPart[];
+  isComplete?: boolean;
 }
 
 export interface FinalAnswer {
-    number: string;
-    answer: string;
+  number: string;
+  answer: string;
 }
 
 export interface FinalAnswerSet {
-    title: string;
-    answers: FinalAnswer[];
+  title?: string;
+  answers: FinalAnswer[];
 }
 
 export interface ChatMessage {
-  id?: string; // Optional unique identifier for a message
+  id?: string;
   role: 'user' | 'model';
   parts: Part[];
+  pdfAttachment?: {
+    name: string;
+    base64Data: string;
+  };
+  isStreaming?: boolean;
   solution?: {
-      questions: SolvedQuestion[];
+    questions: SolvedQuestion[];
   };
   finalAnswers?: FinalAnswerSet;
-  isStreaming?: boolean; // True if the message is actively being streamed
+  thinkingMessage?: string;
 }
 
+export enum EducationalStage {
+  PrimarySchool = "Tiểu học",
+  MiddleSchool = "Trung học cơ sở",
+  HighSchool = "Trung học phổ thông",
+  University = "Đại học",
+  Expert = "Chuyên gia"
+}
+
+export enum DifficultyLevel {
+  Basic = "Cơ bản",
+  Intermediate = "Trung bình",
+  Advanced = "Nâng cao"
+}
+
+export type LearningMode = 'solve_socratic' | 'solve_direct' | 'solve_final_answer' | 'review';
+
+export type AIProvider = 'gemini' | 'openai' | 'deepseek' | 'deep_thought';
+
 export interface UploadedFile {
-    name: string;
-    type: string;
-    base64Data: string;
-    progress?: number; // 0-100 for progress, -1 for error
+  name: string;
+  type: string;
+  base64Data: string;
+  progress?: number; // -1 for error, 0-100 for progress
+}
+
+export type ThemePalette = 'default' | 'mint' | 'twilight' | 'sepia' | 'custom';
+
+export interface CustomThemeColors {
+    background: string;
+    text: string;
+    primary: string;
 }
 
 export interface User {
-  username: string;
+    username: string;
 }

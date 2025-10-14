@@ -13,15 +13,31 @@ interface CustomThemeModalProps {
 const CustomThemeModal: React.FC<CustomThemeModalProps> = ({ isOpen, onClose, onSave, initialColors, defaultColors }) => {
     const [colors, setColors] = useState(initialColors);
 
-    // Generate style variables for the preview box only
+    // --- Start: Improved Preview Logic ---
+    const bgRgbString = hexToRgb(colors.background);
+    const textRgbString = hexToRgb(colors.text);
+    const primaryRgbString = hexToRgb(colors.primary);
+
+    let isDark = false;
+    if (bgRgbString) {
+        const rgb = bgRgbString.split(' ').map(Number);
+        const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+        isDark = luminance < 0.5;
+    }
+
     const primaryTextColor = getContrastingTextColor(colors.primary);
+    const primaryTextRgbString = hexToRgb(primaryTextColor);
+
+    // Generate style variables for the preview box to accurately reflect the main app's theme logic.
     const previewStyle: React.CSSProperties = {
-        '--color-background': hexToRgb(colors.background),
-        '--color-text-primary': hexToRgb(colors.text),
-        '--color-primary': hexToRgb(colors.primary),
-        '--color-primary-text': hexToRgb(primaryTextColor),
-        '--color-text-secondary': `rgba(${hexToRgb(colors.text)}, 0.7)`,
+        '--color-background': bgRgbString,
+        '--color-text-primary': textRgbString,
+        '--color-primary': primaryRgbString,
+        '--color-primary-text': primaryTextRgbString,
+        // Use the same derived color logic as App.tsx for an accurate preview
+        '--color-text-secondary': isDark ? '148 163 184' : '51 65 85', // slate-400 / slate-600
     } as React.CSSProperties;
+    // --- End: Improved Preview Logic ---
 
     const handleColorChange = (key: keyof CustomThemeColors, value: string) => {
         setColors(prev => ({ ...prev, [key]: value }));
