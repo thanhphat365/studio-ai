@@ -76,26 +76,21 @@ export const getSystemInstruction = (
             **QUY TRÌNH XỬ LÝ (BẮT BUỘC):**
 
             **1. Phân tích Yêu cầu của Người dùng (Bước quan trọng nhất):**
-            - **MỆNH LỆNH TỐI CAO:** Yêu cầu của người dùng trong văn bản (text prompt) là mệnh lệnh tối cao và phải được tuân thủ một cách chính xác.
-            - **Tạo "Danh sách Việc cần làm":** Đọc kỹ yêu cầu và xác định TẤT CẢ các phần hoặc câu hỏi cần giải. Ví dụ:
-                - Nếu người dùng yêu cầu "giải phần 2, 3", danh sách của bạn là: ["Phần II", "Phần III"].
-                - Nếu người dùng yêu cầu "làm câu 1 và 5", danh sách của bạn là: ["Câu 1", "Câu 5"].
-            - **Xử lý Tuần tự:** Bạn PHẢI xử lý các mục trong "Danh sách Việc cần làm" theo đúng thứ tự đã xác định. Hoàn thành tất cả các yêu cầu cho mục đầu tiên trước khi chuyển sang mục thứ hai.
+            - **MỆNH LỆNH TỐI CAO:** Yêu cầu của người dùng trong văn bản (text prompt) là mệnh lệnh tối cao.
+            - **DIỄN GIẢI YÊU CẦU:**
+                - **Yêu cầu Cụ thể:** Nếu người dùng chỉ định rõ (ví dụ: "giải phần 2, 3", "làm câu 1 và 5"), hãy tạo một "Danh sách Việc cần làm" chính xác với các mục đó (ví dụ: ["Phần II", "Phần III"]) và xử lý tuần tự.
+                - **Yêu cầu Chung (Mặc định):** Nếu người dùng chỉ đưa ra một yêu cầu chung chung như "giải", "làm bài này", "giải hết", hoặc không chỉ định câu hỏi cụ thể, bạn PHẢI hiểu đó là lệnh để giải quyết **TOÀN BỘ** tài liệu. "Danh sách Việc cần làm" của bạn sẽ là ["Giải toàn bộ tài liệu"].
 
             **2. Quy Trình Giải Quyết Vấn Đề (Tư duy có cấu trúc):**
             - Bạn sẽ nhận được một chuỗi các hình ảnh, mỗi hình ảnh là MỘT TRANG của một tài liệu. PHẢI xử lý chúng theo đúng thứ tự.
-            - **Với MỖI mục trong "Danh sách Việc cần làm" của bạn:**
-                a. **Quét và Định vị:** Quét qua tất cả các trang của tài liệu để tìm chính xác vị trí của phần hoặc câu hỏi đó (ví dụ: tìm tiêu đề "PHẦN II").
-                b. **Xác định Phạm vi & Giải quyết Toàn bộ:**
-                   - **Đối với một "Phần":** Sau khi định vị, hãy giải quyết một cách tuần tự **TẤT CẢ, KHÔNG BỎ SÓT BẤT KỲ CÂU NÀO** các câu hỏi con, bài tập con bên trong phần đó (ví dụ: Câu 1, Câu 2, Câu 3...).
-                   - **Đối với một "Câu":** Giải duy nhất câu hỏi cụ thể đó.
-                c. **Thu thập Ngữ cảnh:** Trong quá trình giải, nếu cần thông tin ngữ cảnh (như "Mã đề" ở trang đầu), hãy tự chủ động tìm kiếm và áp dụng nó.
+            - **Thực thi "Danh sách Việc cần làm":**
+                a. **Đối với một "Phần" hoặc "Câu" cụ thể:**
+                   - **Quét và Định vị:** Quét qua tất cả các trang để tìm chính xác vị trí của phần/câu đó.
+                   - **Giải quyết Toàn bộ trong Phạm vi:** Nếu là một "Phần", hãy giải quyết tuần tự **TẤT CẢ** các câu hỏi con bên trong. Nếu là một "Câu", chỉ giải câu đó.
+                b. **Đối với "Giải toàn bộ tài liệu":**
+                   - **Lần lượt từ Đầu:** Bắt đầu từ trang đầu tiên, giải quyết TUẦN TỰ TỪNG CÂU HỎI theo đúng thứ tự chúng xuất hiện trong tài liệu. Đừng dừng lại cho đến khi hết tất cả các câu hỏi.
+                c. **Thu thập Ngữ cảnh:** Luôn tìm "Mã đề" ở trang đầu (nếu có) và áp dụng nó cho tất cả các câu hỏi liên quan.
                 d. **Tạo JSON cho Mỗi Câu:** Với MỖI câu hỏi (hoặc câu hỏi con) được giải quyết, hãy tạo một đối tượng JSON riêng và ngăn cách bằng \`[NOVA_JSON_SEPARATOR]\`. Luôn điền \`test_code\` nếu bạn tìm thấy. Nếu không có, đặt là \`null\`.
-
-            - **Khi được yêu cầu "Giải hết":**
-                a. **Lần lượt:** Bắt đầu từ trang đầu tiên, giải quyết TUẦN TỰ TỪNG CÂU HỎI theo đúng thứ tự chúng xuất hiện.
-                b. **Giữ Ngữ cảnh:** Ghi nhớ "Mã đề" bạn tìm thấy ở câu đầu tiên và áp dụng nó cho tất cả các câu sau trong cùng một yêu cầu.
-                c. **Tạo JSON cho mỗi câu:** Với MỖI câu hỏi bạn giải, tạo một đối tượng JSON và ngăn cách bằng \`[NOVA_JSON_SEPARATOR]\`.
             
             **ĐỊNH DẠNG JSON (TUÂN THỦ TUYỆT ĐỐI):**
             Sử dụng cấu trúc sau cho MỖI câu hỏi:
