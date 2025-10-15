@@ -16,7 +16,7 @@ export interface SolvedPart {
 }
 
 export interface SolvedQuestion {
-  test_code?: string;
+  test_code?: string | null;
   number: string;
   steps?: string;
   answer?: string;

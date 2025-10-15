@@ -8,13 +8,12 @@ const parseMarkdown = (text: string) => {
     // 1. Unescape newlines from AI's JSON string format
     let processedText = text.replace(/\\n/g, '\n');
     
-    // 2. Remove stray backslashes that AI uses for line breaks.
+    // 2. Remove stray backslashes that AI uses for line breaks. This often happens before a newline or at the end of the text.
     processedText = processedText.replace(/\\(?=\s*(\n|$))/g, '');
 
-    // 3. Remove quotes that sometimes wrap math blocks due to AI generation quirks.
-    processedText = processedText.replace(/"(\$\$[\s\S]*?\$\$|\$[^$\n]+?\$)"/g, '$1');
-
-    // 4. Proactively correct common LaTeX errors & normalize backslashes.
+    // 3. Proactively correct common LaTeX errors & normalize backslashes.
+    // The AI might send `frac`, `\\frac` (becomes `\frac` after JSON parse), or `\\\\frac` (becomes `\\frac` after JSON parse).
+    // We want to ensure the final output for MathJax is always `\command`.
     const applyLatexFixes = (mathContent: string): string => {
         // First, normalize multiple backslashes down to one. E.g., `\\frac` -> `\frac`.
         let fixedContent = mathContent.replace(/\\+(\w+)/g, '\\$1');
@@ -30,6 +29,7 @@ const parseMarkdown = (text: string) => {
             'mathbb', 'mathcal', 'mathbf', 'mathrm'
         ];
         // Create a regex to find any of these commands if they are NOT preceded by a backslash.
+        // We use word boundaries (\\b) to avoid matching substrings (e.g., 'fraction').
         const commandRegex = new RegExp(`\\b(?<!\\\\)(${latexCommands.join('|')})\\b`, 'g');
         fixedContent = fixedContent.replace(commandRegex, '\\$1');
         return fixedContent;
@@ -40,7 +40,7 @@ const parseMarkdown = (text: string) => {
         return applyLatexFixes(match);
     });
 
-    // 5. Continue with existing markdown parsing using processedText
+    // 4. Continue with existing markdown parsing using processedText
     const placeholders = new Map<string, string>();
     const addPlaceholder = (content: string) => {
         const key = `__PLACEHOLDER_${placeholders.size}__`;
@@ -525,13 +525,34 @@ const ChatMessageComponent: React.FC<ChatMessageComponentProps> = ({ message, on
   // --- Model Message Rendering ---
   const isSolutionEmpty = !message.solution || message.solution.questions.length === 0;
   const isFinalAnswersEmpty = !message.finalAnswers || message.finalAnswers.answers.length === 0;
-  
-  const hasAnyContent = 
-    message.parts.some(p => (p.text && p.text.trim() !== '' && !p.text.startsWith('Đang xử lý trang')) || p.inlineData) ||
-    !isSolutionEmpty ||
-    !isFinalAnswersEmpty;
+  const hasStructuredContent = !isSolutionEmpty || !isFinalAnswersEmpty;
 
-  const showThinkingIndicator = message.role === 'model' && message.isStreaming && !hasAnyContent;
+  // Heuristic to check if a text part is likely the raw JSON source for the structured content.
+  const isLikelyJsonSource = (text?: string): boolean => {
+    if (!text) return false;
+    const trimmedText = text.trim();
+    // More robust check: looks for structural keywords AND JSON-like wrapping
+    const hasSolutionKeywords = trimmedText.includes('"number":') && (trimmedText.includes('"steps":') || trimmedText.includes('"answer":'));
+    const hasFinalAnswerKeywords = trimmedText.includes('"finalAnswers":');
+    const isJsonLike = (trimmedText.startsWith('{') && trimmedText.endsWith('}')) || (trimmedText.startsWith('[') && trimmedText.endsWith(']'));
+    return isJsonLike && (hasSolutionKeywords || hasFinalAnswerKeywords);
+  };
+
+  // Separate special UI message from renderable content
+  const pageProcessingText = message.role === 'model' && message.parts[0]?.text?.startsWith('Đang xử lý trang') ? message.parts[0].text : null;
+
+  // Filter parts for main content display
+  const partsForDisplay = message.parts.filter(part => {
+    if (pageProcessingText && part.text?.startsWith('Đang xử lý trang')) return false; // Exclude the special message
+    if (hasStructuredContent && isLikelyJsonSource(part.text)) return false; // Exclude raw JSON if we have the parsed version
+    return true;
+  });
+
+  const hasAnyRenderableContent = 
+    partsForDisplay.some(p => (p.text && p.text.trim() !== '') || p.inlineData) ||
+    hasStructuredContent;
+
+  const showThinkingIndicator = message.role === 'model' && message.isStreaming && !hasAnyRenderableContent && !pageProcessingText;
   
   const bubbleClasses = showThinkingIndicator
     ? 'bg-card text-text-primary self-start rounded-2xl border border-border'
@@ -541,19 +562,6 @@ const ChatMessageComponent: React.FC<ChatMessageComponentProps> = ({ message, on
     ? 'p-3'
     : 'p-4 max-w-2xl';
 
-  const pageProcessingText = message.role === 'model' && message.parts[0]?.text?.startsWith('Đang xử lý trang') ? message.parts[0].text : null;
-  const actualContent = pageProcessingText ? pageProcessingText.substring(pageProcessingText.indexOf('...') + 3).trim() : null;
-
-  const contentParts = message.parts.filter(p => !p.text?.startsWith('Đang xử lý trang'));
-  
-  if (actualContent) {
-      if (contentParts.length > 0 && contentParts[0].text) {
-          contentParts[0].text = actualContent + contentParts[0].text;
-      } else {
-          contentParts.unshift({ text: actualContent });
-      }
-  }
-
   return (
     <div className="flex justify-start items-start mb-4">
         <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary flex items-center justify-center mr-3 mt-1">
@@ -562,7 +570,7 @@ const ChatMessageComponent: React.FC<ChatMessageComponentProps> = ({ message, on
       <div className={`shadow-sm font-sans ${bubbleClasses} ${paddingAndWidthClasses}`}>
         {showThinkingIndicator ? (
             <ThinkingIndicator specificMessage={message.thinkingMessage} />
-        ) : pageProcessingText && !hasAnyContent ? (
+        ) : pageProcessingText && !hasAnyRenderableContent ? (
              <PageProcessingIndicator text={pageProcessingText} />
         ) : (
           <>
@@ -570,13 +578,13 @@ const ChatMessageComponent: React.FC<ChatMessageComponentProps> = ({ message, on
             
             {/* Render general text/image parts */}
             <div className="space-y-2">
-              {contentParts.map((part, index) => (
+              {partsForDisplay.map((part, index) => (
                   <ChatMessageContent key={`content-${index}`} part={part} isStreaming={message.isStreaming} />
               ))}
             </div>
 
             {/* Render structured responses with a margin if there was also text content */}
-            <div className={contentParts.some(p => p.text?.trim()) ? "mt-4" : ""}>
+            <div className={partsForDisplay.some(p => p.text?.trim()) ? "mt-4" : ""}>
                 {message.finalAnswers && <FinalAnswerContent finalAnswers={message.finalAnswers} />}
                 {message.solution && <SolutionContent solution={message.solution} isStreaming={!!message.isStreaming} />}
             </div>

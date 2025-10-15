@@ -36,6 +36,65 @@ const DEFAULT_CUSTOM_THEME: CustomThemeColors = {
     primary: '#4f46e5',    // indigo-600
 };
 
+// Helper to parse a block of text from the AI stream
+const parseStreamBlock = (block: string): { parsedJson: SolvedQuestion | null, cleanedPreamble: string } => {
+    const trimmedBlock = block.trim();
+    if (!trimmedBlock) return { parsedJson: null, cleanedPreamble: '' };
+    
+    let potentialJson = '';
+    let preambleText = trimmedBlock;
+    
+    // Attempt to find JSON inside a markdown code block first
+    const codeBlockMatch = trimmedBlock.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+
+    if (codeBlockMatch && codeBlockMatch[1]) {
+        potentialJson = codeBlockMatch[1].trim();
+        // The text outside the code block is the preamble
+        preambleText = trimmedBlock.replace(codeBlockMatch[0], '').trim();
+    } else {
+        // Fallback to the old method if no code block is found
+        const jsonStartIndex = trimmedBlock.indexOf('{');
+        const jsonEndIndex = trimmedBlock.lastIndexOf('}');
+        
+        if (jsonStartIndex !== -1 && jsonEndIndex > jsonStartIndex) {
+            potentialJson = trimmedBlock.substring(jsonStartIndex, jsonEndIndex + 1);
+            preambleText = trimmedBlock.substring(0, jsonStartIndex);
+        }
+    }
+    
+    if (potentialJson) {
+        try {
+            // "Safety net" regexes to fix common AI formatting errors before parsing
+            // 1. Remove trailing commas, a very common AI mistake.
+            potentialJson = potentialJson.replace(/,(?=\s*[}\]])/g, '');
+
+            // 2. Fix unquoted answers (A, B, C, D, etc.)
+            potentialJson = potentialJson.replace(/"answer":\s*(A|B|C|D|Đúng|Sai)\s*(?=[,}])/g, '"answer": "$1"');
+
+            // 3. Fix unquoted numbers that should be strings
+            potentialJson = potentialJson.replace(/"(answer|number)":\s*(-?\d+(\.\d+)?)\s*(?=[,}])/g, '"$1": "$2"');
+            
+            // 4. Fix unquoted booleans
+            potentialJson = potentialJson.replace(/"isComplete":\s*(True|False)\s*(?=[,}])/gi, (match, p1) => `"isComplete": ${p1.toLowerCase()}`);
+
+            const parsedJson = JSON.parse(potentialJson) as SolvedQuestion;
+            
+            const cleanedPreamble = preambleText
+                .replace(/(?:via-\s*)?(?:```(?:json)?|`json|"json|json)\s*$/i, '')
+                .trim();
+                
+            return { parsedJson, cleanedPreamble };
+        } catch (e) {
+            // If parsing fails, treat the whole block as text. The original block, not just the preamble.
+            return { parsedJson: null, cleanedPreamble: trimmedBlock };
+        }
+    }
+    
+    // No JSON found, treat the whole block as preamble text.
+    return { parsedJson: null, cleanedPreamble: trimmedBlock };
+}
+
+
 const App: React.FC = () => {
     // App State
     const [appState, setAppState] = useState<'auth' | 'start' | 'chat'>('auth');
@@ -61,6 +120,7 @@ const App: React.FC = () => {
     const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
     const [isChangelogModalOpen, setIsChangelogModalOpen] = useState(false);
     const [pdfToView, setPdfToView] = useState<string | null>(null);
+    const [showSolveAllButton, setShowSolveAllButton] = useState(false);
 
     // --- Effects ---
 
@@ -167,7 +227,7 @@ const App: React.FC = () => {
         saveUserSession();
     }, [saveUserSession]);
 
-    // --- Handlers ---
+    // --- File & Camera Handlers ---
     const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const files = Array.from(event.target.files || []);
         if (files.length === 0) return;
@@ -218,241 +278,273 @@ const App: React.FC = () => {
         }]);
         setIsCameraOpen(false);
     };
+
+    // --- Core AI Response Handlers ---
     
-    const handleSendMessage = async () => {
-        const userQuery = input.trim();
-        const hasPdf = uploadedFiles.some(f => f.type === 'application/pdf');
+    const finalizeModelMessage = (modelMessageId: string) => {
+        setMessages(prev =>
+            prev.map(msg =>
+                msg.id === modelMessageId
+                    ? { ...msg, isStreaming: false, thinkingMessage: undefined }
+                    : msg
+            )
+        );
+    };
 
-        if (isLoading || (userQuery.length === 0 && uploadedFiles.length === 0)) return;
-        if (hasPdf && userQuery.length === 0) return;
 
-        setIsLoading(true);
+    const processStreamedSolutionResponse = async (
+        history: ChatMessage[],
+        systemInstruction: string,
+        modelMessagePlaceholderId: string,
+        currentLearningMode: LearningMode
+    ) => {
+        const stream = generateResponseStream(history, systemInstruction);
+        let currentBuffer = '';
+        const delimiter = '[NOVA_JSON_SEPARATOR]';
 
-        const pdfFile = uploadedFiles.find(f => f.type === 'application/pdf');
-        const imageFiles = uploadedFiles.filter(f => f.type !== 'application/pdf');
+        for await (const chunk of stream) {
+            currentBuffer += chunk;
+            
+            while (currentBuffer.includes(delimiter)) {
+                const separatorIndex = currentBuffer.indexOf(delimiter);
+                const blockToProcess = currentBuffer.substring(0, separatorIndex);
+                currentBuffer = currentBuffer.substring(separatorIndex + delimiter.length);
 
-        // Show user message immediately in the UI
+                const { parsedJson, cleanedPreamble } = parseStreamBlock(blockToProcess);
+
+                setMessages(prev => prev.map(msg => {
+                    if (msg.id !== modelMessagePlaceholderId) return msg;
+                    
+                    let updatedSolution = { ...msg.solution! };
+                    let updatedParts = [...msg.parts];
+                    
+                    // Only append preamble text if not in a strict JSON mode
+                    if (cleanedPreamble && (currentLearningMode !== 'solve_direct' && currentLearningMode !== 'solve_final_answer')) {
+                       const existingText = (updatedParts[0]?.text || '').replace(/^Đang phân tích.*?\.\.\./, '').trim();
+                       updatedParts = [{ text: existingText ? `${existingText}\n${cleanedPreamble}`: cleanedPreamble }];
+                    }
+                    if (parsedJson) {
+                         const existingQuestionIndex = updatedSolution.questions.findIndex(q => q.number === parsedJson.number && q.test_code === parsedJson.test_code);
+                         if (existingQuestionIndex > -1) {
+                            updatedSolution.questions[existingQuestionIndex] = parsedJson;
+                         } else {
+                            updatedSolution.questions.push(parsedJson);
+                         }
+                    }
+                    return { ...msg, solution: updatedSolution, parts: updatedParts };
+                }));
+            }
+        }
+        // Process any remaining buffer content after the stream ends
+        if (currentBuffer.trim()) {
+            const { parsedJson, cleanedPreamble } = parseStreamBlock(currentBuffer);
+            setMessages(prev => prev.map(msg => {
+                 if (msg.id !== modelMessagePlaceholderId) return msg;
+                 let updatedSolution = { ...msg.solution! };
+                 let updatedParts = [...msg.parts];
+                 // Only append preamble text if not in a strict JSON mode
+                 if (cleanedPreamble && (currentLearningMode !== 'solve_direct' && currentLearningMode !== 'solve_final_answer')) {
+                    const existingText = (updatedParts[0]?.text || '').replace(/^Đang phân tích.*?\.\.\./, '').trim();
+                    updatedParts = [{ text: existingText ? `${existingText}\n${cleanedPreamble}`: cleanedPreamble }];
+                 }
+                 if (parsedJson) {
+                    updatedSolution.questions.push(parsedJson);
+                 }
+                 return { ...msg, solution: updatedSolution, parts: updatedParts };
+            }));
+        }
+    };
+    
+    const handlePdfProcessing = async (pdfFile: UploadedFile, userQuery: string) => {
+        // 1. Setup UI messages
         const userMessageForUI: ChatMessage = {
             role: 'user',
-            parts: userQuery ? [{ text: userQuery }] : [],
-            pdfAttachment: pdfFile ? { name: pdfFile.name, base64Data: pdfFile.base64Data } : undefined
+            parts: [{ text: userQuery }],
+            pdfAttachment: { name: pdfFile.name, base64Data: pdfFile.base64Data }
         };
-        imageFiles.forEach(file => {
-            userMessageForUI.parts.push({
-                inlineData: { mimeType: file.type, data: file.base64Data },
-            });
-        });
-        const currentHistory: ChatMessage[] = [...messages, userMessageForUI];
-        setMessages(currentHistory);
+        setMessages(prev => [...prev, userMessageForUI]);
         setInput('');
         setUploadedFiles([]);
 
-        // Determine the specific thinking message based on attachments
-        let thinkingMessage = "Đang phân tích câu hỏi...";
-        if (pdfFile) {
-            thinkingMessage = "Đang phân tích tài liệu... việc này có thể mất một chút thời gian.";
-        } else if (imageFiles.length > 0) {
-            thinkingMessage = "Đang phân tích hình ảnh...";
-        }
-
-        // Prepare placeholder for model response
+        const modelMessagePlaceholderId = `model-${Date.now()}`;
         const modelMessagePlaceholder: ChatMessage = {
-            id: `model-${Date.now()}`,
+            id: modelMessagePlaceholderId,
             role: 'model',
-            parts: [{ text: '' }],
+            parts: [{ text: `Đang chuẩn bị phân tích tài liệu "${pdfFile.name}"...` }],
             isStreaming: true,
-            thinkingMessage: thinkingMessage
+            solution: { questions: [] }
         };
         setMessages(prev => [...prev, modelMessagePlaceholder]);
 
         try {
-            // Build parts for the actual AI API call
-            let userPartsForAI: Part[] = [];
-            if (userQuery) {
-                userPartsForAI.push({ text: userQuery });
-            }
-            imageFiles.forEach(file => userPartsForAI.push({
-                inlineData: { mimeType: file.type, data: file.base64Data }
-            }));
-            if (pdfFile) {
-                userPartsForAI.push({
-                    inlineData: { mimeType: pdfFile.type, data: pdfFile.base64Data }
+            // 2. Process PDF pages into multiple image parts
+            const pdfData = atob(pdfFile.base64Data);
+            const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+            const numPages = pdf.numPages;
+            const imagePartsForAI: Part[] = [];
+
+            const SCALE = 2.0; // Increased scale for higher accuracy
+            const JPEG_QUALITY = 0.95; // Increased quality for higher accuracy
+
+            for (let i = 0; i < numPages; i++) {
+                const progress = Math.round(((i + 1) / numPages) * 100);
+                setMessages(prev => prev.map(msg => msg.id === modelMessagePlaceholderId ? { ...msg, parts: [{ text: `Đang xử lý trang ${i + 1}/${numPages} (${progress}%)` }] } : msg));
+                await new Promise(resolve => setTimeout(resolve, 0)); // Yield to event loop for UI update
+
+                const page = await pdf.getPage(i + 1);
+                const viewport = page.getViewport({ scale: SCALE });
+                
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const context = canvas.getContext('2d');
+                if (!context) continue;
+
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                
+                const pageImageBase64 = canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1];
+                imagePartsForAI.push({
+                    inlineData: { mimeType: 'image/jpeg', data: pageImageBase64 }
                 });
             }
-
-            // Create the final message history for the AI
-            const finalUserMessage: ChatMessage = { role: 'user', parts: userPartsForAI };
-            const finalHistory = [...messages, finalUserMessage];
             
-            // --- Unified AI Call ---
+            setMessages(prev => prev.map(msg => msg.id === modelMessagePlaceholderId ? { ...msg, thinkingMessage: `Đang phân tích tài liệu...`, parts: [] } : msg));
+
+            // 3. Prepare AI request with the prompt and all page images
+            const partsForAI: Part[] = [
+                { text: userQuery },
+                ...imagePartsForAI
+            ];
+            const historyForAI: ChatMessage[] = [...messages.slice(0, -1), { role: 'user', parts: partsForAI }];
             const systemInstruction = getSystemInstruction(selectedStage, selectedDifficulty, learningMode);
-            const stream = generateResponseStream(finalHistory, systemInstruction);
 
-            if (learningMode === 'solve_direct') {
-                setMessages(prev => prev.map(msg =>
-                    msg.id === modelMessagePlaceholder.id
-                        ? { ...msg, solution: { questions: [] }, parts: [] }
-                        : msg
-                ));
+            // Show the "Solve All" button before starting the stream
+            setShowSolveAllButton(true);
 
-                let buffer = '';
-                const delimiter = '[NOVA_JSON_SEPARATOR]';
-
-                const processStreamBlock = (block: string) => {
-                    if (!block) return;
-                    const trimmedBlock = block.trim();
-                    if (!trimmedBlock) return;
-
-                    const jsonStartIndex = trimmedBlock.indexOf('{');
-                    const jsonEndIndex = trimmedBlock.lastIndexOf('}');
-                
-                    let preambleText = trimmedBlock;
-                    let parsedJson: SolvedQuestion | null = null;
-                    
-                    if (jsonStartIndex !== -1 && jsonEndIndex > jsonStartIndex) {
-                        let potentialJson = trimmedBlock.substring(jsonStartIndex, jsonEndIndex + 1);
-                        try {
-                            // Regex "safety net" to fix common JSON format errors from the AI before parsing.
-                            
-                            // 1. Fix unquoted single-word answers (A, B, C, D, Đúng, Sai).
-                            potentialJson = potentialJson.replace(/"answer":\s*(A|B|C|D|Đúng|Sai)\s*(?=[,}])/g, '"answer": "$1"');
-                            
-                            // 2. Fix unquoted numeric values for keys that should be strings ("answer", "number").
-                            potentialJson = potentialJson.replace(/"(answer|number)":\s*(-?\d+(\.\d+)?)\s*(?=[,}])/g, '"$1": "$2"');
-                        
-                            // 3. Fix Python-style booleans (True/False) for "isComplete".
-                            potentialJson = potentialJson.replace(/"isComplete":\s*(True|False)\s*(?=[,}])/gi, (match, p1) => `"isComplete": ${p1.toLowerCase()}`);
-                            
-                            parsedJson = JSON.parse(potentialJson) as SolvedQuestion;
-                            preambleText = trimmedBlock.substring(0, jsonStartIndex);
-                        } catch (e) {
-                            // If JSON parsing fails, keep the original block as preamble text
-                            parsedJson = null;
-                            preambleText = trimmedBlock;
-                        }
-                    }
-                    
-                    const cleanedPreamble = preambleText
-                        .replace(/(?:via-\s*)?(?:```(?:json)?|`json|"json|json)\s*$/i, '')
-                        .trim();
-                
-                    if (cleanedPreamble) {
-                        setMessages(prev => prev.map(msg => {
-                            if (msg.id === modelMessagePlaceholder.id) {
-                                const newParts = [...(msg.parts || [])];
-                                const lastPart = newParts[newParts.length - 1];
-                                if (lastPart && lastPart.text !== undefined) {
-                                     lastPart.text += (lastPart.text ? '\n' : '') + cleanedPreamble;
-                                } else {
-                                    newParts.push({ text: cleanedPreamble });
-                                }
-                                return { ...msg, parts: newParts };
-                            }
-                            return msg;
-                        }));
-                    }
-                    
-                    if (parsedJson) {
-                        const newQuestion = parsedJson;
-                        setMessages(prev => prev.map(msg => {
-                            if (msg.id === modelMessagePlaceholder.id && msg.solution) {
-                                const questions = msg.solution.questions;
-                                const existingQuestionIndex = questions.findIndex(q => q.number === newQuestion.number && q.test_code === newQuestion.test_code);
-                                
-                                let updatedQuestions;
-                                if (existingQuestionIndex > -1) {
-                                    updatedQuestions = [...questions];
-                                    updatedQuestions[existingQuestionIndex] = newQuestion;
-                                } else {
-                                    updatedQuestions = [...questions, newQuestion];
-                                }
-                                return { ...msg, solution: { ...msg.solution, questions: updatedQuestions } };
-                            }
-                            return msg;
-                        }));
-                    }
-                };
+            // 4. Process the stream
+            await processStreamedSolutionResponse(historyForAI, systemInstruction, modelMessagePlaceholderId, learningMode);
             
-                for await (const chunk of stream) {
-                    buffer += chunk;
-                    const parts = buffer.split(delimiter);
-                    if (parts.length > 1) {
-                        for (let i = 0; i < parts.length - 1; i++) {
-                            processStreamBlock(parts[i]);
-                        }
-                        buffer = parts[parts.length - 1];
-                    }
-                }
-                // Process any remaining data in the buffer
-                processStreamBlock(buffer);
-            } else {
-                 // --- Standard Text & Single JSON Streaming Logic ---
-                let fullResponseText = '';
-                for await (const chunk of stream) {
-                    fullResponseText += chunk;
-                    setMessages(prev => prev.map(msg =>
-                        msg.id === modelMessagePlaceholder.id
-                            ? { ...msg, parts: [{ text: fullResponseText }] }
-                            : msg
-                    ));
-                }
+            // 5. Finalize the message
+            finalizeModelMessage(modelMessagePlaceholderId);
 
-                let finalModelMessage: ChatMessage = { ...modelMessagePlaceholder };
-                try {
-                    const findJsonBlock = (text: string): { json: string | null, remaining: string } => {
-                        const startIndex = text.indexOf('{');
-                        if (startIndex === -1) return { json: null, remaining: text };
-                        let braceCount = 0;
-                        let endIndex = -1;
-                        for (let i = startIndex; i < text.length; i++) {
-                            if (text[i] === '{') braceCount++;
-                            else if (text[i] === '}') braceCount--;
-                            if (braceCount === 0) {
-                                endIndex = i;
-                                break;
-                            }
-                        }
-                        if (endIndex !== -1) {
-                            const jsonStr = text.substring(startIndex, endIndex + 1);
-                            const remainingStr = text.substring(0, startIndex) + text.substring(endIndex + 1);
-                            return { json: jsonStr, remaining: remainingStr.trim() };
-                        }
-                        return { json: null, remaining: text };
-                    };
-                    const { json: jsonString, remaining: remainingText } = findJsonBlock(fullResponseText);
-
-                    if (jsonString) {
-                        const parsedJson = JSON.parse(jsonString);
-                        finalModelMessage.parts = remainingText ? [{ text: remainingText }] : [];
-                        if (parsedJson.solution) finalModelMessage.solution = parsedJson.solution as { questions: SolvedQuestion[] };
-                        if (parsedJson.finalAnswers) finalModelMessage.finalAnswers = parsedJson.finalAnswers as FinalAnswerSet;
-                        if (!parsedJson.solution && !parsedJson.finalAnswers) finalModelMessage.parts = [{ text: fullResponseText }];
-                    } else {
-                        finalModelMessage.parts = [{ text: fullResponseText }];
-                    }
-                } catch (e) {
-                    console.error("Failed to parse JSON from stream, treating as plain text.", e, "Full text:", fullResponseText);
-                    finalModelMessage.parts = [{ text: fullResponseText }];
-                }
-                setMessages(prev => prev.map(msg => msg.id === modelMessagePlaceholder.id ? { ...finalModelMessage, isStreaming: false } : msg));
-            }
-            
-            // Mark message as complete
-            setMessages(prev => prev.map(msg =>
-                msg.id === modelMessagePlaceholder.id
-                    ? { ...msg, isStreaming: false }
-                    : msg
-            ));
         } catch (error: any) {
-            const errorMessage = `Lỗi: ${error.message}`;
+            setShowSolveAllButton(false);
+            const errorMessage = `Lỗi khi xử lý PDF: ${error.message}`;
             setMessages(prev => prev.map(msg => 
-                msg.id === modelMessagePlaceholder.id 
+                msg.id === modelMessagePlaceholderId 
                     ? { ...msg, parts: [{ text: errorMessage }], isStreaming: false }
                     : msg
             ));
         } finally {
             setIsLoading(false);
         }
+    };
+    
+    const handleStandardMessage = async (userQuery: string, files: UploadedFile[]) => {
+        const partsForUI: Part[] = userQuery ? [{ text: userQuery }] : [];
+        files.forEach(file => {
+            partsForUI.push({ inlineData: { mimeType: file.type, data: file.base64Data } });
+        });
+        const userMessageForUI: ChatMessage = { role: 'user', parts: partsForUI };
+        
+        const currentHistory = [...messages, userMessageForUI];
+        setMessages(currentHistory);
+        setInput('');
+        setUploadedFiles([]);
+        
+        let thinkingMessage = files.length > 0 ? "Đang phân tích hình ảnh..." : "Đang phân tích câu hỏi...";
+
+        const modelMessagePlaceholderId = `model-${Date.now()}`;
+        const modelMessagePlaceholder: ChatMessage = {
+            id: modelMessagePlaceholderId,
+            role: 'model',
+            parts: [{ text: '' }],
+            isStreaming: true,
+            thinkingMessage: thinkingMessage,
+            // Initialize solution structure if it's a solution-based mode
+            ...( (learningMode === 'solve_direct' || learningMode === 'solve_final_answer') && { solution: { questions: [] } })
+        };
+        setMessages(prev => [...prev, modelMessagePlaceholder]);
+
+        try {
+            const systemInstruction = getSystemInstruction(selectedStage, selectedDifficulty, learningMode);
+            
+            if (learningMode === 'solve_direct') {
+                await processStreamedSolutionResponse(currentHistory, systemInstruction, modelMessagePlaceholderId, learningMode);
+                finalizeModelMessage(modelMessagePlaceholderId);
+            } else {
+                // Handle Socratic, Review, and Final Answer modes
+                const stream = generateResponseStream(currentHistory, systemInstruction);
+                let fullResponseText = '';
+                for await (const chunk of stream) {
+                    fullResponseText += chunk;
+                    setMessages(prev => prev.map(msg => msg.id === modelMessagePlaceholderId ? { ...msg, parts: [{ text: fullResponseText }] } : msg));
+                }
+
+                // Post-process for modes that expect a single JSON object (like Final Answers)
+                setMessages(prev =>
+                  prev.map(msg => {
+                    if (msg.id !== modelMessagePlaceholderId) {
+                      return msg;
+                    }
+                    let finalModelMessage: ChatMessage = { ...msg, parts: [{ text: fullResponseText }] };
+                    if (learningMode === 'solve_final_answer') {
+                      try {
+                        const parsedJson = JSON.parse(fullResponseText);
+                        if (parsedJson.finalAnswers) {
+                          finalModelMessage.finalAnswers = parsedJson.finalAnswers as FinalAnswerSet;
+                          finalModelMessage.parts = []; // Clear the raw JSON text
+                        }
+                      } catch (e) {
+                        console.error("Failed to parse Final Answers JSON, showing raw text.", e);
+                      }
+                    }
+                    return { ...finalModelMessage, isStreaming: false };
+                  })
+                );
+            }
+        } catch (error: any) {
+            const errorMessage = `Lỗi: ${error.message}`;
+            setMessages(prev => prev.map(msg => 
+                msg.id === modelMessagePlaceholderId 
+                    ? { ...msg, parts: [{ text: errorMessage }], isStreaming: false }
+                    : msg
+            ));
+        } finally {
+            setIsLoading(false);
+        }
+    }
+
+    const handleSendMessage = async () => {
+        const userQuery = input.trim();
+        if (isLoading || (userQuery.length === 0 && uploadedFiles.length === 0)) return;
+        
+        setShowSolveAllButton(false); // Reset on any new message
+
+        const pdfFile = uploadedFiles.find(f => f.type === 'application/pdf');
+        if (pdfFile && userQuery.length === 0) {
+            // Prevent sending a PDF without a prompt for it
+            return;
+        }
+
+        setIsLoading(true);
+        const otherFiles = uploadedFiles.filter(f => f.type !== 'application/pdf');
+
+        if (pdfFile && (learningMode === 'solve_direct' || learningMode === 'solve_final_answer')) {
+            await handlePdfProcessing(pdfFile, userQuery);
+        } else {
+            // Handle cases with no PDF, or PDFs in other modes (like Socratic) where we treat it like a big image
+            const allFiles = [...otherFiles];
+            if(pdfFile) allFiles.push(pdfFile);
+            await handleStandardMessage(userQuery, allFiles);
+        }
+    };
+
+    const handleSolveAll = async () => {
+        if (isLoading) return;
+        setShowSolveAllButton(false);
+        setIsLoading(true);
+        await handleStandardMessage("Giải hết tất cả các câu hỏi còn lại trong tài liệu này.", []);
     };
     
     // --- Auth Handlers ---
@@ -480,6 +572,7 @@ const App: React.FC = () => {
     
     const handleClearHistory = () => {
         setMessages([]);
+        setShowSolveAllButton(false);
         if (currentUser) {
             localStorage.removeItem(`nova-session-${currentUser.username}`);
         }
@@ -539,6 +632,19 @@ const App: React.FC = () => {
                                 <div ref={chatEndRef} />
                             </div>
                         </main>
+                        {showSolveAllButton && (
+                            <button
+                                onClick={handleSolveAll}
+                                disabled={isLoading}
+                                className="fixed bottom-24 right-6 z-10 px-4 py-3 bg-primary text-primary-text font-semibold rounded-xl shadow-lg hover:bg-primary-hover transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 animate-fade-in"
+                                aria-label="Giải hết tất cả câu hỏi"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h6a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                                </svg>
+                                <span>Giải hết</span>
+                            </button>
+                        )}
                         <ChatInput
                             input={input}
                             setInput={setInput}

@@ -1,7 +1,18 @@
 import { GoogleGenAI, Content, GenerateContentResponse } from "@google/genai";
 import { ChatMessage } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+
+const getAiInstance = (): GoogleGenAI => {
+    if (!ai) {
+        if (!process.env.API_KEY) {
+            throw new Error("Lỗi: Khóa API của Google Gemini chưa được cấu hình. Vui lòng liên hệ quản trị viên.");
+        }
+        ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    }
+    return ai;
+};
+
 
 // Generates a response stream from Google Gemini API
 export const generateGeminiResponseStream = (
@@ -10,18 +21,15 @@ export const generateGeminiResponseStream = (
 ): AsyncGenerator<string> => {
     
     return (async function*() {
-        if (!process.env.API_KEY) {
-            yield "Lỗi: Khóa API của Google Gemini chưa được cấu hình. Vui lòng liên hệ quản trị viên.";
-            return;
-        }
-
-        const contents: Content[] = messages.map(msg => ({
-            role: msg.role,
-            parts: msg.parts
-        }));
-        
         try {
-            const streamPromise = ai.models.generateContentStream({
+            const client = getAiInstance();
+
+            const contents: Content[] = messages.map(msg => ({
+                role: msg.role,
+                parts: msg.parts
+            }));
+            
+            const streamPromise = client.models.generateContentStream({
                 model: "gemini-2.5-flash",
                 contents: contents,
                 config: {
@@ -37,7 +45,9 @@ export const generateGeminiResponseStream = (
             }
         } catch (e: any) {
              console.error("Gemini stream error:", e);
-             yield `Lỗi từ Gemini: ${e.message}`;
+             // Try to find a meaningful message within the error object
+             const errorMessage = e?.message || (typeof e === 'object' ? JSON.stringify(e) : String(e));
+             yield `Lỗi từ Gemini: ${errorMessage}`; // Yield a more informative error message
         }
     })();
 };
@@ -48,17 +58,15 @@ export const generateGeminiResponse = async (
     messages: ChatMessage[],
     systemInstruction: string
 ): Promise<string> => {
-    if (!process.env.API_KEY) {
-        throw new Error("Lỗi: Khóa API của Google Gemini chưa được cấu hình. Vui lòng liên hệ quản trị viên.");
-    }
-
-    const contents: Content[] = messages.map(msg => ({
-        role: msg.role,
-        parts: msg.parts
-    }));
-
     try {
-        const response: GenerateContentResponse = await ai.models.generateContent({
+        const client = getAiInstance();
+
+        const contents: Content[] = messages.map(msg => ({
+            role: msg.role,
+            parts: msg.parts
+        }));
+
+        const response: GenerateContentResponse = await client.models.generateContent({
             model: "gemini-2.5-flash",
             contents: contents,
             config: {
@@ -69,7 +77,8 @@ export const generateGeminiResponse = async (
         return response.text;
     } catch (e: any) {
         console.error("Gemini non-stream error:", e);
-        throw new Error(`Lỗi từ Gemini: ${e.message}`);
+        // Rethrow a new error with a user-friendly message from the original error
+        throw new Error(e.message);
     }
 };
 
@@ -77,10 +86,9 @@ export const generateGeminiResponse = async (
 // Generates an image using Gemini's Imagen model
 export const generateImage = async (prompt: string): Promise<string> => {
     try {
-        if (!process.env.API_KEY) {
-            throw new Error("API_KEY environment variable not set for Gemini Image Generation.");
-        }
-        const response = await ai.models.generateImages({
+        const client = getAiInstance();
+        
+        const response = await client.models.generateImages({
             model: 'imagen-4.0-generate-001',
             prompt: prompt,
             config: {
@@ -92,10 +100,10 @@ export const generateImage = async (prompt: string): Promise<string> => {
         if (response.generatedImages && response.generatedImages.length > 0 && response.generatedImages[0].image.imageBytes) {
             return response.generatedImages[0].image.imageBytes;
         } else {
-            throw new Error("No image was generated.");
+            throw new Error("Không có hình ảnh nào được tạo.");
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error generating image:", error);
-        throw new Error("Failed to generate image.");
+        throw new Error(error.message || "Không thể tạo hình ảnh.");
     }
 };
